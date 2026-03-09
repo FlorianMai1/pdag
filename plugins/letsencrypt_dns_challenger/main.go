@@ -1,6 +1,5 @@
 // Plugin letsencrypt_dns_challenger allows only PATCH requests to zone endpoints
-// where every RRset in the body is a TXT record with an _acme-challenge. prefix,
-// and PUT requests to notify endpoints.
+// where every RRset in the body is a TXT record with an _acme-challenge. prefix.
 package main
 
 import (
@@ -28,21 +27,11 @@ type rrset struct {
 }
 
 func (p *challengerPlugin) Authorize(_ context.Context, req *pb.HttpRequest) (*pb.AuthorizeResponse, error) {
-	path := req.Path
-
-	// Allow PUT to notify endpoints: /api/v1/servers/{id}/zones/{zone}/notify
-	if req.Method == "PUT" && strings.HasSuffix(path, "/notify") && isZoneSubpath(path) {
-		return &pb.AuthorizeResponse{
-			Decision: pb.Decision_ALLOW,
-			Reason:   "letsencrypt: zone notify",
-		}, nil
-	}
-
 	// Only allow PATCH to zone endpoints.
-	if req.Method != "PATCH" || !isZonePath(path) {
+	if req.Method != "PATCH" || !isZonePath(req.Path) {
 		return &pb.AuthorizeResponse{
 			Decision: pb.Decision_DENY,
-			Reason:   fmt.Sprintf("letsencrypt: only PATCH to zones and PUT notify allowed, got %s %s", req.Method, path),
+			Reason:   fmt.Sprintf("letsencrypt: only PATCH to zones allowed, got %s %s", req.Method, req.Path),
 		}, nil
 	}
 
@@ -97,12 +86,6 @@ func isZonePath(path string) bool {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	// api/v1/servers/{id}/zones/{zone} = 6 parts
 	return len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "servers" && parts[4] == "zones"
-}
-
-// isZoneSubpath checks if the path is under a zone: /api/v1/servers/{id}/zones/{zone}/...
-func isZoneSubpath(path string) bool {
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	return len(parts) >= 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "servers" && parts[4] == "zones"
 }
 
 // resolvable checks if the FQDN has at least one A, AAAA, or CNAME record.

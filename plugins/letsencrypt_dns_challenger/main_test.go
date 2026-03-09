@@ -17,10 +17,10 @@ func makeBody(t *testing.T, patch rrsetPatch) []byte {
 	return b
 }
 
-func TestDeniesNonPATCHNonPUT(t *testing.T) {
+func TestDeniesNonPATCH(t *testing.T) {
 	p := &challengerPlugin{}
 
-	for _, method := range []string{"GET", "DELETE", "POST"} {
+	for _, method := range []string{"GET", "DELETE", "POST", "PUT"} {
 		t.Run(method, func(t *testing.T) {
 			resp, err := p.Authorize(context.Background(), &pb.HttpRequest{
 				Method: method,
@@ -33,36 +33,6 @@ func TestDeniesNonPATCHNonPUT(t *testing.T) {
 				t.Errorf("decision = %v, want DENY for %s", resp.Decision, method)
 			}
 		})
-	}
-}
-
-func TestAllowsPUTNotify(t *testing.T) {
-	p := &challengerPlugin{}
-
-	resp, err := p.Authorize(context.Background(), &pb.HttpRequest{
-		Method: "PUT",
-		Path:   "/api/v1/servers/localhost/zones/example.com./notify",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Decision != pb.Decision_ALLOW {
-		t.Errorf("decision = %v (%s), want ALLOW for PUT notify", resp.Decision, resp.Reason)
-	}
-}
-
-func TestDeniesPUTNonNotify(t *testing.T) {
-	p := &challengerPlugin{}
-
-	resp, err := p.Authorize(context.Background(), &pb.HttpRequest{
-		Method: "PUT",
-		Path:   "/api/v1/servers/localhost/zones/example.com.",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Decision != pb.Decision_DENY {
-		t.Errorf("decision = %v, want DENY for PUT to non-notify path", resp.Decision)
 	}
 }
 
@@ -183,7 +153,6 @@ func TestDeniesUnresolvableFQDN(t *testing.T) {
 func TestAllowsValidAcmeChallenge(t *testing.T) {
 	p := &challengerPlugin{}
 
-	// Uses a well-known resolvable domain.
 	resp, err := p.Authorize(context.Background(), &pb.HttpRequest{
 		Method: "PATCH",
 		Path:   "/api/v1/servers/localhost/zones/example.com.",
@@ -234,26 +203,6 @@ func TestIsZonePath(t *testing.T) {
 		t.Run(tt.path, func(t *testing.T) {
 			if got := isZonePath(tt.path); got != tt.want {
 				t.Errorf("isZonePath(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsZoneSubpath(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"/api/v1/servers/localhost/zones/example.com.", true},
-		{"/api/v1/servers/localhost/zones/example.com./notify", true},
-		{"/api/v1/servers/localhost/zones", false},
-		{"/api/v1/servers", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			if got := isZoneSubpath(tt.path); got != tt.want {
-				t.Errorf("isZoneSubpath(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

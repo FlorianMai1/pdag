@@ -60,3 +60,5 @@ plugins:
     circuit_breaker:
       failure_threshold: 3
       cooldown: 60s
+  zone_notify:
+    path: "/opt/pdag/plugins/zone_notify"
