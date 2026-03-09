@@ -62,3 +62,5 @@ plugins:
       cooldown: 60s
   zone_notify:
     path: "/opt/pdag/plugins/zone_notify"
+  api_discovery:
+    path: "/opt/pdag/plugins/api_discovery"

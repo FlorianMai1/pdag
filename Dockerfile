@@ -11,6 +11,7 @@ RUN CGO_ENABLED=0 go build -o /plugins/admin    ./plugins/admin
 RUN CGO_ENABLED=0 go build -o /plugins/read_zones ./plugins/read_zones
 RUN CGO_ENABLED=0 go build -o /plugins/letsencrypt_dns_challenger ./plugins/letsencrypt_dns_challenger
 RUN CGO_ENABLED=0 go build -o /plugins/zone_notify ./plugins/zone_notify
+RUN CGO_ENABLED=0 go build -o /plugins/api_discovery ./plugins/api_discovery
 
 # ── Runtime stage ─────────────────────────────────────────────────
 FROM alpine:3.20
