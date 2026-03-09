@@ -1,0 +1,10 @@
+# Compiled binaries
+pdag-test
+plugins/admin/admin
+plugins/read_zones/read_zones
+plugins/letsencrypt_dns_challenger/letsencrypt_dns_challenger
+
+# Test artifacts
+tests/pdag-e2e-*.yaml
+!tests/pdag-e2e.yaml
+!tests/pdag-e2e-ratelimit.yaml

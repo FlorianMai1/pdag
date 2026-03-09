@@ -1,0 +1,29 @@
+upstreams:
+  backends:
+    - url: "http://pdns-1:8081"
+      api_key: "bench-api-key"
+    - url: "http://pdns-2:8081"
+      api_key: "bench-api-key"
+    - url: "http://pdns-3:8081"
+      api_key: "bench-api-key"
+  health_check:
+    interval: 5s
+    timeout: 2s
+    path: "/api/v1/servers"
+
+hmac_secrets:
+  - id: "v1"
+    secret: "bench-hmac-secret"
+
+plugins:
+  admin:
+    path: "/opt/pdag/plugins/admin"
+  read_zones:
+    path: "/opt/pdag/plugins/read_zones"
+
+plugin_defaults:
+  timeout: "2s"
+  circuit_breaker:
+    failure_threshold: 5
+    success_threshold: 2
+    cooldown: "30s"

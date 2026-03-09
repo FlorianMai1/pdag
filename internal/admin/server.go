@@ -1,0 +1,237 @@
+package admin
+
+import (
+	"crypto/subtle"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/mai/pdag/internal/store"
+)
+
+// NewServer returns an http.Server for the admin API on the given address.
+func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToken string) *http.Server {
+	return &http.Server{
+		Addr:    addr,
+		Handler: Handler(mgr, keygen, adminToken),
+	}
+}
+
+// Handler returns an http.Handler for the admin API routes.
+func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("POST /admin/keys", withAuth(adminToken, createKey(mgr, keygen)))
+	mux.HandleFunc("GET /admin/keys", withAuth(adminToken, listKeys(mgr)))
+	mux.HandleFunc("DELETE /admin/keys/{id}", withAuth(adminToken, deleteKey(mgr)))
+	mux.HandleFunc("PATCH /admin/keys/{id}/disable", withAuth(adminToken, setEnabled(mgr, false)))
+	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
+	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr)))
+
+	return mux
+}
+
+func withAuth(token string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			http.Error(w, "admin API not configured", http.StatusServiceUnavailable)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+		got := strings.TrimPrefix(auth, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "invalid bearer token", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+type createKeyRequest struct {
+	Principal string   `json:"principal"`
+	Roles     []string `json:"roles"`
+	ExpiresAt *string  `json:"expires_at,omitempty"` // RFC3339
+}
+
+type createKeyResponse struct {
+	ID        string   `json:"id"`
+	Secret    string   `json:"secret"`
+	Principal string   `json:"principal"`
+	Roles     []string `json:"roles"`
+}
+
+func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createKeyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Principal == "" {
+			http.Error(w, "principal is required", http.StatusBadRequest)
+			return
+		}
+
+		keyID, err := keygen.GenerateKeyID()
+		if err != nil {
+			slog.Error("generate key ID", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		secret, err := keygen.GenerateSecret()
+		if err != nil {
+			slog.Error("generate secret", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		hash := keygen.Hash(secret)
+
+		rec := &store.KeyRecord{
+			ID:        keyID,
+			KeyHash:   hash,
+			HmacKeyID: keygen.HmacKeyID(),
+			Principal: req.Principal,
+			Roles:     req.Roles,
+			Enabled:   true,
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+		}
+
+		if req.ExpiresAt != nil {
+			t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+			if err != nil {
+				http.Error(w, "invalid expires_at format (use RFC3339)", http.StatusBadRequest)
+				return
+			}
+			rec.ExpiresAt = &t
+		}
+
+		if err := mgr.Create(r.Context(), rec); err != nil {
+			slog.Error("create key", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := mgr.AuditKeyEvent(r.Context(), keyID, "create", "admin_api", nil, map[string]any{
+			"principal": req.Principal,
+			"roles":     req.Roles,
+		}); err != nil {
+			slog.Error("audit key create", "error", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(createKeyResponse{
+			ID:        keyID,
+			Secret:    secret,
+			Principal: req.Principal,
+			Roles:     req.Roles,
+		})
+	}
+}
+
+type keyResponse struct {
+	ID        string     `json:"id"`
+	Principal string     `json:"principal"`
+	Roles     []string   `json:"roles"`
+	Enabled   bool       `json:"enabled"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+func listKeys(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		keys, err := mgr.List(r.Context())
+		if err != nil {
+			slog.Error("list keys", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		resp := make([]keyResponse, len(keys))
+		for i, k := range keys {
+			resp[i] = keyResponse{
+				ID:        k.ID,
+				Principal: k.Principal,
+				Roles:     k.Roles,
+				Enabled:   k.Enabled,
+				ExpiresAt: k.ExpiresAt,
+				CreatedAt: k.CreatedAt,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func deleteKey(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := mgr.Delete(r.Context(), id); err != nil {
+			slog.Error("delete key", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), id, "delete", "admin_api", nil, nil); err != nil {
+			slog.Error("audit key delete", "error", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func setEnabled(mgr store.KeyManager, enabled bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := mgr.SetEnabled(r.Context(), id, enabled); err != nil {
+			slog.Error("set enabled", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		action := "disable"
+		if enabled {
+			action = "enable"
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), id, action, "admin_api", nil, map[string]any{
+			"enabled": enabled,
+		}); err != nil {
+			slog.Error("audit key "+action, "error", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type updateRolesRequest struct {
+	Roles []string `json:"roles"`
+}
+
+func updateRoles(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		var req updateRolesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if err := mgr.SetRoles(r.Context(), id, req.Roles); err != nil {
+			slog.Error("set roles", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), id, "update_roles", "admin_api", nil, map[string]any{
+			"roles": req.Roles,
+		}); err != nil {
+			slog.Error("audit key update_roles", "error", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}

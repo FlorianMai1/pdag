@@ -1,0 +1,21 @@
+hmac_secrets:
+  - id: "v1"
+    secret: "e2e-test-hmac-secret"
+
+rate_limit:
+  enabled: true
+  rate: 1        # 1 token/sec refill — easy to exhaust
+  burst: 3       # allow 3 initial requests, then 429
+
+plugins:
+  admin:
+    path: "./plugins/admin/admin"
+  read_zones:
+    path: "./plugins/read_zones/read_zones"
+
+plugin_defaults:
+  timeout: "2s"
+  circuit_breaker:
+    failure_threshold: 5
+    success_threshold: 2
+    cooldown: "30s"

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package pdag.authz;
+
+option go_package = "github.com/mai/pdag/proto/authz";
+
+service Authorizer {
+  rpc Authorize(HttpRequest) returns (AuthorizeResponse);
+}
+
+// Faithful representation of the authorization-relevant parts of http.Request.
+// Headers use repeated Header (not map) because HTTP headers are multi-valued.
+message HttpRequest {
+  string method = 1;           // r.Method
+  string scheme = 2;           // r.URL.Scheme
+  string host = 3;             // r.Host
+  string path = 4;             // r.URL.Path
+  string raw_query = 5;        // r.URL.RawQuery
+  repeated Header headers = 6; // r.Header (multi-value safe)
+  bytes body = 7;              // buffered r.Body
+  int64 content_length = 8;    // r.ContentLength
+  string remote_addr = 9;      // r.RemoteAddr (ip:port)
+  string request_id = 10;      // PDAG-assigned
+  string principal = 11;       // resolved from authn step
+}
+
+message Header {
+  string key = 1;
+  repeated string values = 2;
+}
+
+message AuthorizeResponse {
+  Decision decision = 1;
+  string reason = 2;  // human-readable, included in audit log
+}
+
+enum Decision {
+  DENY = 0;
+  ALLOW = 1;
+}

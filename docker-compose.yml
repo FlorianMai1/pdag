@@ -1,0 +1,91 @@
+services:
+  # ── PostgreSQL for PowerDNS Auth ────────────────────────────────
+  pdns-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdns
+      POSTGRES_USER: pdns
+      POSTGRES_PASSWORD: pdns-secret
+    volumes:
+      - pdns-db-data:/var/lib/postgresql/data
+      - ./init/pdns-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdns"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── PowerDNS Authoritative Server ──────────────────────────────
+  pdns:
+    image: powerdns/pdns-auth-49:latest
+    restart: unless-stopped
+    depends_on:
+      pdns-db:
+        condition: service_healthy
+    ports:
+      - "5353:53/tcp"
+      - "5353:53/udp"
+    environment:
+      PDNS_AUTH_API_KEY: pdns-internal-api-key
+      PDNS_launch: gpgsql
+      PDNS_gpgsql_host: pdns-db
+      PDNS_gpgsql_port: "5432"
+      PDNS_gpgsql_user: pdns
+      PDNS_gpgsql_password: pdns-secret
+      PDNS_gpgsql_dbname: pdns
+      PDNS_webserver: "yes"
+      PDNS_webserver_address: "0.0.0.0"
+      PDNS_webserver_port: "8081"
+      PDNS_webserver_allow_from: "0.0.0.0/0"
+      PDNS_api: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "pdns_control rping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── PostgreSQL for PDAG ────────────────────────────────────────
+  pdag-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdag
+      POSTGRES_USER: pdag
+      POSTGRES_PASSWORD: pdag-secret
+    volumes:
+      - pdag-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdag"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── PDAG (PowerDNS Audit Gateway) ─────────────────────────────
+  pdag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pdns:
+        condition: service_healthy
+      pdag-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+      - "9091:9091"
+    volumes:
+      - pdag-audit-log:/var/log/pdag
+      - ./pdag.yaml:/opt/pdag/pdag.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pdns-db-data:
+  pdag-db-data:
+  pdag-audit-log:

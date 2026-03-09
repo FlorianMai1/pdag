@@ -1,0 +1,62 @@
+# PDAG configuration example.
+# Copy to pdag.yaml and adjust values for your environment.
+
+listen: ":8080"
+max_body_size: 1048576  # 1 MiB
+shutdown_wait: 30s
+
+upstreams:
+  backends:
+    - url: "http://pdns:8081"
+      api_key: "pdns-internal-api-key"
+      # api_key_file: "/run/secrets/upstream_api_key"  # alternative: read from file
+    # - url: "http://pdns-2:8081"
+    #   api_key: "pdns-internal-api-key"
+  health_check:
+    interval: 10s    # active health check interval (used with multiple backends)
+    timeout: 2s      # health check request timeout
+    path: "/api/v1/servers"  # health check endpoint
+
+audit_log: "/var/log/pdag/audit.jsonl"
+
+admin_token: "change-me-in-production"
+# admin_token_file: "/run/secrets/admin_token"  # alternative: read from file
+
+metrics:
+  listen: ":9090"
+
+admin:
+  listen: ":9091"
+
+db:
+  driver: "postgres"
+  dsn: "postgres://pdag:pdag-secret@pdag-db:5432/pdag?sslmode=disable"
+
+hmac_secrets:
+  - id: "v1"
+    secret: "change-me-in-production"
+    # secret_file: "/run/secrets/hmac_v1"  # alternative: read from file
+
+rate_limit:
+  enabled: false         # set to true to enable per-principal rate limiting
+  rate: 100              # requests per second per principal
+  burst: 200             # max burst size per principal
+
+plugin_defaults:
+  timeout: 500ms
+  circuit_breaker:
+    failure_threshold: 5
+    success_threshold: 2
+    cooldown: 30s
+
+plugins:
+  admin:
+    path: "/opt/pdag/plugins/admin"
+  read_zones:
+    path: "/opt/pdag/plugins/read_zones"
+  letsencrypt_dns_challenger:
+    path: "/opt/pdag/plugins/letsencrypt_dns_challenger"
+    timeout: 2s  # DNS resolution may be slow
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown: 60s

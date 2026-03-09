@@ -1,0 +1,19 @@
+hmac_secrets:
+  - id: "v1"
+    secret: "e2e-test-hmac-secret"
+
+rate_limit:
+  enabled: false  # explicitly off — benchmarks and load tests must not hit 429
+
+plugins:
+  admin:
+    path: "./plugins/admin/admin"
+  read_zones:
+    path: "./plugins/read_zones/read_zones"
+
+plugin_defaults:
+  timeout: "2s"
+  circuit_breaker:
+    failure_threshold: 5
+    success_threshold: 2
+    cooldown: "30s"

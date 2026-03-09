@@ -1,0 +1,85 @@
+services:
+  pdns-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pdns
+      POSTGRES_USER: pdns
+      POSTGRES_PASSWORD: pdns-secret
+    volumes:
+      - ../init/pdns-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdns"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  pdns-1:
+    image: powerdns/pdns-auth-49:latest
+    depends_on:
+      pdns-db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    volumes: &pdns-volumes
+      - ./pdns.conf:/etc/powerdns/pdns.conf:ro
+    healthcheck: &pdns-health
+      test: ["CMD-SHELL", "pdns_control rping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  pdns-2:
+    image: powerdns/pdns-auth-49:latest
+    depends_on:
+      pdns-db:
+        condition: service_healthy
+    volumes: *pdns-volumes
+    healthcheck: *pdns-health
+
+  pdns-3:
+    image: powerdns/pdns-auth-49:latest
+    depends_on:
+      pdns-db:
+        condition: service_healthy
+    volumes: *pdns-volumes
+    healthcheck: *pdns-health
+
+  pdag-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pdag
+      POSTGRES_USER: pdag
+      POSTGRES_PASSWORD: pdag-secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdag"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  pdag:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      pdns-1:
+        condition: service_healthy
+      pdns-2:
+        condition: service_healthy
+      pdns-3:
+        condition: service_healthy
+      pdag-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "9091:9091"
+    volumes:
+      - ./pdag.yaml:/etc/pdag/pdag.yaml:ro
+    environment:
+      PDAG_LISTEN: ":8080"
+      PDAG_METRICS__LISTEN: ":9090"
+      PDAG_ADMIN__LISTEN: ":9091"
+      PDAG_ADMIN_TOKEN: "bench-admin-token"
+      PDAG_DB__DRIVER: "postgres"
+      PDAG_DB__DSN: "postgres://pdag:pdag-secret@pdag-db:5432/pdag?sslmode=disable"
+      PDAG_AUDIT_LOG: ""
+    command: ["serve", "--config", "/etc/pdag/pdag.yaml"]
