@@ -29,6 +29,7 @@ func New(upstreamURL string, apiKey string) (*Backend, error) {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			contentType := pr.In.Header.Get("Content-Type")
 			contentLength := pr.In.Header.Get("Content-Length")
+			accept := pr.In.Header.Get("Accept")
 
 			for key := range pr.In.Header {
 				pr.Out.Header.Del(key)
@@ -40,6 +41,9 @@ func New(upstreamURL string, apiKey string) (*Backend, error) {
 			}
 			if contentLength != "" {
 				pr.Out.Header.Set("Content-Length", contentLength)
+			}
+			if accept != "" {
+				pr.Out.Header.Set("Accept", accept)
 			}
 
 			pr.SetURL(target)
