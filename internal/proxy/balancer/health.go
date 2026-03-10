@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mai/pdag/internal/metrics"
@@ -23,40 +24,53 @@ func (lb *Balancer) healthLoop(ctx context.Context, cfg HealthCheckConfig) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			lb.checkAll(ctx, client, cfg.Path)
+			lb.checkAll(ctx, client, cfg)
 		}
 	}
 }
 
-func (lb *Balancer) checkAll(ctx context.Context, client *http.Client, path string) {
+func (lb *Balancer) checkAll(ctx context.Context, client *http.Client, cfg HealthCheckConfig) {
+	var wg sync.WaitGroup
 	for i := range lb.backends {
-		entry := &lb.backends[i]
-		wasHealthy := entry.healthy.Load()
+		wg.Add(1)
+		go func(entry *backendEntry) {
+			defer wg.Done()
+			lb.checkOne(ctx, client, entry, cfg)
+		}(&lb.backends[i])
+	}
+	wg.Wait()
+}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", entry.url+path, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("X-API-Key", entry.apiKey)
+func (lb *Balancer) checkOne(ctx context.Context, client *http.Client, entry *backendEntry, cfg HealthCheckConfig) {
+	wasHealthy := entry.healthy.Load()
 
-		resp, err := client.Do(req)
-		healthy := err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300
-		if resp != nil {
-			resp.Body.Close()
-		}
+	// Use a per-check timeout so one slow backend doesn't block others.
+	checkCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	defer cancel()
 
-		entry.healthy.Store(healthy)
+	req, err := http.NewRequestWithContext(checkCtx, "GET", entry.url+cfg.Path, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("X-API-Key", entry.apiKey)
 
-		val := float64(0)
-		if healthy {
-			val = 1
-		}
-		metrics.UpstreamBackendHealthy.WithLabelValues(entry.url).Set(val)
+	resp, err := client.Do(req)
+	healthy := err == nil && resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300
+	if resp != nil {
+		resp.Body.Close()
+	}
 
-		if wasHealthy && !healthy {
-			slog.Warn("backend became unhealthy", "backend", entry.url, "error", err)
-		} else if !wasHealthy && healthy {
-			slog.Info("backend recovered", "backend", entry.url)
-		}
+	entry.healthy.Store(healthy)
+
+	val := float64(0)
+	if healthy {
+		val = 1
+	}
+	metrics.UpstreamBackendHealthy.WithLabelValues(entry.url).Set(val)
+
+	if wasHealthy && !healthy {
+		slog.Warn("backend became unhealthy", "backend", entry.url, "error", err)
+	} else if !wasHealthy && healthy {
+		slog.Info("backend recovered", "backend", entry.url)
 	}
 }
