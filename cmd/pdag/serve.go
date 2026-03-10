@@ -204,13 +204,19 @@ func newProxyServer(listenAddr string, maxBodySize int64, rl ratelimit.RateLimit
 		authz.Middleware(pluginMgr),
 	)(lb)
 
+	// Health probes get request ID and metrics but skip auth/authz.
+	probeChain := middleware.Chain(
+		middleware.RequestID,
+		metrics.Middleware,
+	)
+
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /healthz", probeChain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("GET /readyz", readinessCheck(keyStore, pluginMgr, lb))
+	})))
+	mux.Handle("GET /readyz", probeChain(readinessCheck(keyStore, pluginMgr, lb)))
 
 	return &http.Server{Addr: listenAddr, Handler: mux}
 }
@@ -236,8 +242,8 @@ func readinessCheck(ks store.KeyStore, pluginMgr *authzplugin.Manager, lb proxy.
 			http.Error(w, "store unhealthy", http.StatusServiceUnavailable)
 			return
 		}
-		if !pluginMgr.HasPlugins() {
-			http.Error(w, "no plugins available", http.StatusServiceUnavailable)
+		if !pluginMgr.Healthy() {
+			http.Error(w, "no healthy plugins", http.StatusServiceUnavailable)
 			return
 		}
 		if !lb.Healthy() {
