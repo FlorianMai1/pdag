@@ -70,29 +70,37 @@ The `/healthz` and `/readyz` endpoints are registered on the same `mux` as the p
 
 **Fix:** Replaced `sync.RWMutex` + `map[string]*pluginInstance` with `atomic.Pointer[pluginMap]` using copy-on-write. The hot path (`Authorize`, `Healthy`, `HasPlugins`) is now completely lock-free — just an atomic pointer load to get an immutable snapshot. Writers (`restartPlugin`, `Close`) serialize via a separate `sync.Mutex` and perform copy-on-write: load current map → copy → modify → atomic store. An `atomic.Bool` `closed` flag prevents `restartPlugin` from re-adding a plugin after `Close` has emptied the map.
 
-### 9. Admin API has no rate limiting or request size limits
+### 9. Admin API has no rate limiting or request size limits — ADDRESSED
 
 **File:** `internal/admin/server.go`
 
 The admin API server has no middleware for rate limiting, body size limits, or request timeouts. A malicious actor with the admin token (or during a brute-force attempt) could send unlimited requests or very large JSON bodies to `POST /admin/keys`. The `json.NewDecoder(r.Body).Decode` will read unbounded input.
 
-### 10. Admin token comparison leaks token length
+**Fix:** Added three protections: (1) `http.MaxBytesReader` wrapping limits request bodies to 64 KiB — oversized payloads are rejected before JSON decoding. (2) Per-IP token bucket rate limiter (10 req/s, burst 50) reusing the existing `ratelimit/token` package. (3) Server timeouts (`ReadHeaderTimeout: 5s`, `ReadTimeout: 10s`, `WriteTimeout: 30s`, `IdleTimeout: 60s`) to prevent slowloris and hung connections.
 
-**File:** `internal/admin/server.go:48`
+### 10. Admin token comparison leaks token length — ADDRESSED
+
+**File:** `internal/admin/server.go`
 
 `subtle.ConstantTimeCompare` is constant-time only when both inputs are the same length. When they differ in length, it returns 0 immediately. An attacker could determine the admin token length by measuring response times. Consider padding or using HMAC comparison instead.
 
-### 11. Missing `Accept` header forwarding on proxy
+**Fix:** Replaced direct byte comparison with HMAC-SHA256 comparison. Both the expected token and the candidate are HMACed with the same key, producing fixed-length 32-byte MACs. `subtle.ConstantTimeCompare` on equal-length MACs is truly constant-time regardless of input lengths. The expected token's MAC is precomputed at init time to avoid redundant hashing per request.
 
-**File:** `internal/proxy/single/single.go:33-36`
+### 11. Missing `Accept` header forwarding on proxy — ADDRESSED
+
+**File:** `internal/proxy/single/single.go` + `internal/proxy/balancer/balancer.go`
 
 The header stripping removes **all** client headers, including `Accept`. PowerDNS API may return different representations based on `Accept`. More critically, `Authorization` headers from other middleware patterns are also stripped -- which is correct for PDAG's use case but means the proxy is not transparent in a broader sense.
 
-### 12. `letsencrypt_dns_challenger` does synchronous DNS lookups in the hot path
+**Fix:** Added `Accept` to the set of preserved headers in both proxy implementations (`single` and `balancer`). The header is saved before stripping and restored on the outbound request, matching the existing pattern for `Content-Type` and `Content-Length`.
 
-**File:** `plugins/letsencrypt_dns_challenger/main.go:92-101`
+### 12. `letsencrypt_dns_challenger` does synchronous DNS lookups in the hot path — ADDRESSED
+
+**File:** `plugins/letsencrypt_dns_challenger/main.go`
 
 `net.LookupHost` and `net.LookupCNAME` use the system resolver and can take seconds if DNS is slow. This runs within the plugin's 500ms default timeout, but the plugin has no internal context/timeout for the DNS lookup itself. A slow DNS resolver could cause the plugin to consistently time out, trip the circuit breaker, and deny all ACME challenges even when DNS eventually resolves.
+
+**Fix:** Replaced package-level `net.LookupHost`/`net.LookupCNAME` with context-aware `net.Resolver` methods. Each DNS lookup now gets a 200ms timeout derived from the parent gRPC context, leaving headroom within the 500ms plugin timeout for multiple RRsets. The `Authorize` method now uses the incoming `context.Context` instead of discarding it.
 
 ### 13. Token bucket rate limiter holds global mutex for all principals
 
