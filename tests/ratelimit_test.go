@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,13 +29,13 @@ func TestRateLimiting(t *testing.T) {
 	adminPort := freePort()
 
 	// Start a second PDAG instance with rate limiting enabled.
-	cfgFile, err := writeE2EConfig("tests/pdag-e2e-ratelimit.yaml", pdagUpstreamURL)
+	cfgFile, err := writeE2EConfig("pdag-e2e-ratelimit.yaml", pdagUpstreamURL)
 	if err != nil {
 		t.Fatalf("write ratelimit config: %v", err)
 	}
 	defer os.Remove(cfgFile)
 
-	cmd := exec.CommandContext(ctx, "./pdag-test", "serve", "--config", cfgFile)
+	cmd := exec.CommandContext(ctx, "./pdag-test", "serve", "--config", filepath.Join("tests", cfgFile))
 	cmd.Dir = ".."
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("PDAG_LISTEN=:%s", proxyPort),

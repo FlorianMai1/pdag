@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -136,13 +137,13 @@ func runMain(m *testing.M) (int, error) {
 	pdagUpstreamURL = fmt.Sprintf("http://%s:%s", pdnsHost, pdnsAPIPort.Port())
 	pdagDBDSN = fmt.Sprintf("postgres://pdag:pdag-secret@%s:%s/pdag?sslmode=disable", pdagDBHost, pdagDBPort.Port())
 
-	cfgFile, err := writeE2EConfig("tests/pdag-e2e.yaml", pdagUpstreamURL)
+	cfgFile, err := writeE2EConfig("pdag-e2e.yaml", pdagUpstreamURL)
 	if err != nil {
 		return 1, fmt.Errorf("write e2e config: %w", err)
 	}
 	defer os.Remove(cfgFile)
 
-	pdagCmd := exec.CommandContext(cmdCtx, "./pdag-test", "serve", "--config", cfgFile)
+	pdagCmd := exec.CommandContext(cmdCtx, "./pdag-test", "serve", "--config", filepath.Join("tests", cfgFile))
 	pdagCmd.Dir = ".."
 
 	pdagCmd.Env = append(os.Environ(),
@@ -186,7 +187,7 @@ func writeE2EConfig(basePath, upstreamURL string) (string, error) {
 		return "", err
 	}
 	upstreamsBlock := fmt.Sprintf("upstreams:\n  backends:\n    - url: %q\n      api_key: \"test-api-key\"\n\n", upstreamURL)
-	f, err := os.CreateTemp("tests", "pdag-e2e-*.yaml")
+	f, err := os.CreateTemp(".", "pdag-e2e-*.yaml")
 	if err != nil {
 		return "", err
 	}
