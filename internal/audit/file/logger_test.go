@@ -123,10 +123,10 @@ func TestLoggerBufferFull(t *testing.T) {
 	}
 
 	// Close the file to force write errors in the flush goroutine.
-	l.mu.Lock()
+	l.fileMu.Lock()
 	l.file.Close()
 	l.file = nil
-	l.mu.Unlock()
+	l.fileMu.Unlock()
 
 	// Flood the channel.
 	var dropped int
@@ -137,11 +137,11 @@ func TestLoggerBufferFull(t *testing.T) {
 	}
 
 	// Re-open so Close doesn't panic.
-	l.mu.Lock()
+	l.fileMu.Lock()
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	l.file = f
 	l.enc = json.NewEncoder(f)
-	l.mu.Unlock()
+	l.fileMu.Unlock()
 
 	// We can't assert exact drop count (depends on goroutine scheduling),
 	// but the test should not panic or deadlock.
