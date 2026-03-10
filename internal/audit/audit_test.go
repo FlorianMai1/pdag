@@ -28,7 +28,17 @@ func TestAuditMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := middleware.RequestID(Middleware(pub)(inner))
+	// Wrap with a status code recorder to simulate what the metrics middleware
+	// does in production (setting the StatusCodePtr in context).
+	withStatusCode := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rec := middleware.NewStatusRecorder(w)
+			ctx := middleware.WithStatusCodePtr(r.Context(), &rec.StatusCode)
+			next.ServeHTTP(rec, r.WithContext(ctx))
+		})
+	}
+
+	handler := middleware.RequestID(withStatusCode(Middleware(pub)(inner)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers?q=test", nil)
 	req.Header.Set("User-Agent", "test-agent")

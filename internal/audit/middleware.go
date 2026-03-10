@@ -11,13 +11,12 @@ import (
 )
 
 // Middleware returns an HTTP middleware that logs every request to the audit log
-// after the response is written. It wraps the ResponseWriter with a StatusRecorder
-// to capture the status code.
+// after the response is written. It reads the status code from the shared context
+// pointer set by the metrics middleware (avoiding double StatusRecorder wrapping).
 func Middleware(pub Publisher) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			rec := middleware.NewStatusRecorder(w)
 
 			// Allocate the authz result container and place in context
 			// so inner middleware (authz) can write to it.
@@ -25,7 +24,14 @@ func Middleware(pub Publisher) func(http.Handler) http.Handler {
 			ctx := middleware.WithAuthzResultPtr(r.Context(), &authzResult)
 			r = r.WithContext(ctx)
 
-			next.ServeHTTP(rec, r)
+			next.ServeHTTP(w, r)
+
+			// Read status code from the shared pointer set by the metrics
+			// middleware (which owns the single StatusRecorder).
+			statusCode := 0
+			if ptr := middleware.GetStatusCodePtr(r.Context()); ptr != nil {
+				statusCode = *ptr
+			}
 
 			sourceIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 
@@ -39,7 +45,7 @@ func Middleware(pub Publisher) func(http.Handler) http.Handler {
 				Query:         r.URL.RawQuery,
 				SourceIP:      sourceIP,
 				UserAgent:     r.UserAgent(),
-				StatusCode:    rec.StatusCode,
+				StatusCode:    statusCode,
 				LatencyMs:     time.Since(start).Milliseconds(),
 				AuthzDecision: authzResult.Decision,
 				AuthzPlugin:   authzResult.Plugin,

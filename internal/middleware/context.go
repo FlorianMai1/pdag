@@ -14,7 +14,8 @@ const (
 	rolesKey       contextKey = "roles"
 	bodyBytesKey   contextKey = "bodyBytes"
 	bodySizePtrKey contextKey = "bodySizePtr"
-	authzResultKey contextKey = "authzResult"
+	authzResultKey  contextKey = "authzResult"
+	statusCodeKey   contextKey = "statusCodePtr"
 )
 
 type AuthzResult struct {
@@ -95,6 +96,18 @@ func WithAuthzResultPtr(ctx context.Context, result *AuthzResult) context.Contex
 // GetAuthzResultPtr retrieves the AuthzResult pointer from context.
 func GetAuthzResultPtr(ctx context.Context) *AuthzResult {
 	v, _ := ctx.Value(authzResultKey).(*AuthzResult)
+	return v
+}
+
+// WithStatusCodePtr stores a pointer to a status code int in context.
+// The metrics middleware allocates the pointer; the audit middleware reads it.
+func WithStatusCodePtr(ctx context.Context, code *int) context.Context {
+	return context.WithValue(ctx, statusCodeKey, code)
+}
+
+// GetStatusCodePtr retrieves the status code pointer from context.
+func GetStatusCodePtr(ctx context.Context) *int {
+	v, _ := ctx.Value(statusCodeKey).(*int)
 	return v
 }
 

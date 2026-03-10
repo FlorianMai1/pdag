@@ -22,6 +22,8 @@ func Middleware(next http.Handler) http.Handler {
 		// Allocate body size pointer so BodyBuffer (downstream) can write to it.
 		var bodySize int64
 		ctx := middleware.WithBodySizePtr(r.Context(), &bodySize)
+		// Share the status code with downstream middleware (audit) to avoid double-wrapping.
+		ctx = middleware.WithStatusCodePtr(ctx, &rec.StatusCode)
 
 		next.ServeHTTP(rec, r.WithContext(ctx))
 
