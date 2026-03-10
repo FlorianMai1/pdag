@@ -110,11 +110,13 @@ All `Allow()` calls contend on a single `sync.Mutex`. Under high concurrency wit
 
 **Fix:** Replaced the global `sync.Mutex` + `map[string]*bucket` with `sync.Map` + per-bucket `sync.Mutex`. Different principals never contend. The call counter uses `atomic.Int64` instead of a mutex-guarded int. Cleanup uses `sync.Map.Range` with per-bucket lock checks for staleness.
 
-### 14. Audit log entry records `start` time as `Timestamp`
+### 14. Audit log entry records `start` time as `Timestamp` — ADDRESSED
 
-**File:** `internal/audit/middleware.go:33`
+**File:** `internal/audit/middleware.go`
 
 The entry timestamp is `start.UTC()` -- the time the request *began*, not when the audit entry was created. This is a design choice, not a bug, but it means the audit log timestamp doesn't reflect when the action completed. For compliance/forensics, the completion time is often more relevant.
+
+**Fix:** Changed `Timestamp` from `start.UTC()` to `time.Now().UTC()`, reflecting when the response completed and the audit entry was created. The start time is still derivable as `timestamp - latency_ms`.
 
 ### 15. No pagination on `GET /admin/keys`
 

@@ -36,7 +36,7 @@ func Middleware(pub Publisher) func(http.Handler) http.Handler {
 			sourceIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 
 			entry := Entry{
-				Timestamp:     start.UTC(),
+				Timestamp:     time.Now().UTC(),
 				RequestID:     middleware.GetRequestID(ctx),
 				Principal:     middleware.GetPrincipal(ctx),
 				KeyID:         middleware.GetKeyID(ctx),
