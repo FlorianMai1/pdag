@@ -298,3 +298,16 @@ func (m *Manager) HasPlugins() bool {
 	defer m.mu.RUnlock()
 	return len(m.plugins) > 0
 }
+
+// Healthy returns true if at least one plugin process is alive and not
+// permanently failed. Used by the readiness probe.
+func (m *Manager) Healthy() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inst := range m.plugins {
+		if !inst.failed.Load() && !inst.client.Exited() {
+			return true
+		}
+	}
+	return false
+}
