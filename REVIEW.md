@@ -62,11 +62,13 @@ The `/healthz` and `/readyz` endpoints are registered on the same `mux` as the p
 
 ## Design Issues
 
-### 8. Global mutex contention on the plugin manager
+### 8. Global mutex contention on the plugin manager — ADDRESSED
 
-**File:** `internal/authz/plugin/manager.go:135`
+**File:** `internal/authz/plugin/manager.go`
 
 `Authorize` takes `m.mu.RLock()` for the entire duration of the fan-out -- including waiting for all plugin gRPC responses (up to 500ms default). Under high concurrency, a plugin restart (which takes `m.mu.Lock()` at line 249) will block **all** in-flight authorization requests until the restart completes. This could cause a latency spike affecting all principals, not just those using the restarting plugin.
+
+**Fix:** Replaced `sync.RWMutex` + `map[string]*pluginInstance` with `atomic.Pointer[pluginMap]` using copy-on-write. The hot path (`Authorize`, `Healthy`, `HasPlugins`) is now completely lock-free — just an atomic pointer load to get an immutable snapshot. Writers (`restartPlugin`, `Close`) serialize via a separate `sync.Mutex` and perform copy-on-write: load current map → copy → modify → atomic store. An `atomic.Bool` `closed` flag prevents `restartPlugin` from re-adding a plugin after `Close` has emptied the map.
 
 ### 9. Admin API has no rate limiting or request size limits
 

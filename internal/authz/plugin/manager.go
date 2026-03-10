@@ -35,33 +35,44 @@ type pluginInstance struct {
 	failed     atomic.Bool // true after all restart attempts are exhausted
 }
 
+// pluginMap is an immutable snapshot of plugin instances.
+// Never mutate in place — always copy-on-write.
+type pluginMap struct {
+	m map[string]*pluginInstance
+}
+
 // Manager manages all authorization plugins.
 type Manager struct {
-	mu      sync.RWMutex
-	plugins map[string]*pluginInstance
-	done    chan struct{} // closed on Close() to cancel in-flight restarts
+	plugins atomic.Pointer[pluginMap] // lock-free reads
+	writeMu sync.Mutex                // serializes mutations (restartPlugin, Close)
+	done    chan struct{}              // closed on Close() to cancel in-flight restarts
+	closed  atomic.Bool               // prevents restartPlugin from re-adding after Close
 }
 
 // NewManager creates a new plugin manager and starts all configured plugins.
 // The caller is responsible for resolving defaults before passing the map.
 func NewManager(plugins map[string]authz.PluginConfig) (*Manager, error) {
 	m := &Manager{
-		plugins: make(map[string]*pluginInstance),
-		done:    make(chan struct{}),
+		done: make(chan struct{}),
 	}
+	m.plugins.Store(&pluginMap{m: make(map[string]*pluginInstance)})
 
+	instances := make(map[string]*pluginInstance, len(plugins))
 	for name, pc := range plugins {
 		inst, err := startPlugin(name, pc)
 		if err != nil {
 			// Clean up already-started plugins.
-			m.Close()
+			for _, started := range instances {
+				started.client.Kill()
+			}
 			return nil, fmt.Errorf("start plugin %q: %w", name, err)
 		}
 
-		m.plugins[name] = inst
+		instances[name] = inst
 		slog.Info("plugin started", "name", name, "path", pc.Path)
 	}
 
+	m.plugins.Store(&pluginMap{m: instances})
 	return m, nil
 }
 
@@ -133,8 +144,7 @@ func startPlugin(name string, pc authz.PluginConfig) (*pluginInstance, error) {
 // Returns the first ALLOW result, or DENY if all plugins deny.
 // Uses fan-out with early cancellation on first ALLOW.
 func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpRequest) (decision string, pluginName string, reason string) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	snap := m.plugins.Load()
 
 	if len(roles) == 0 {
 		return "deny", "", "no roles assigned"
@@ -152,7 +162,7 @@ func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpReq
 	resultCh := make(chan result, len(roles))
 
 	for _, role := range roles {
-		inst, ok := m.plugins[role]
+		inst, ok := snap.m[role]
 		if !ok {
 			slog.Warn("plugin not found for role", "role", role)
 			resultCh <- result{"deny", role, "plugin not configured"}
@@ -232,6 +242,19 @@ func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInsta
 	}
 }
 
+// swapPlugin performs a copy-on-write map replacement. Must hold writeMu.
+func (m *Manager) swapPlugin(name string, newInst *pluginInstance) *pluginInstance {
+	current := m.plugins.Load()
+	newMap := make(map[string]*pluginInstance, len(current.m))
+	for k, v := range current.m {
+		newMap[k] = v
+	}
+	old := newMap[name]
+	newMap[name] = newInst
+	m.plugins.Store(&pluginMap{m: newMap})
+	return old
+}
+
 // restartPlugin attempts to restart a crashed plugin with exponential backoff.
 // It respects the Manager's done channel for graceful shutdown.
 func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
@@ -253,8 +276,6 @@ func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
 			continue
 		}
 
-		m.mu.Lock()
-		old := m.plugins[name]
 		// Reset circuit breaker so the fresh instance can prove health immediately.
 		newInst.breaker = NewCircuitBreaker(
 			name,
@@ -262,31 +283,44 @@ func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
 			pc.SuccessThreshold,
 			pc.Cooldown,
 		)
-		m.plugins[name] = newInst
-		m.mu.Unlock()
-		old.client.Kill()
+
+		m.writeMu.Lock()
+		if m.closed.Load() {
+			m.writeMu.Unlock()
+			newInst.client.Kill()
+			return
+		}
+		old := m.swapPlugin(name, newInst)
+		m.writeMu.Unlock()
+
+		if old != nil {
+			old.client.Kill()
+		}
 		slog.Info("plugin restarted successfully", "plugin", name, "attempt", attempt+1)
 		return
 	}
 
 	// All attempts exhausted — mark plugin as permanently failed to prevent
 	// infinite restart loops from callPlugin detecting the dead process.
-	m.mu.RLock()
-	if inst, ok := m.plugins[name]; ok {
+	snap := m.plugins.Load()
+	if inst, ok := snap.m[name]; ok {
 		inst.failed.Store(true)
 	}
-	m.mu.RUnlock()
 	slog.Error("plugin restart exhausted all attempts, marked as permanently failed", "plugin", name)
 }
 
 // Close cancels in-flight restarts and kills all plugin subprocesses.
 func (m *Manager) Close() {
 	close(m.done) // signal restart goroutines to stop
+	m.closed.Store(true)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
 
-	for name, inst := range m.plugins {
+	snap := m.plugins.Load()
+	m.plugins.Store(&pluginMap{m: make(map[string]*pluginInstance)})
+
+	for name, inst := range snap.m {
 		inst.client.Kill()
 		slog.Info("plugin stopped", "name", name)
 	}
@@ -294,17 +328,13 @@ func (m *Manager) Close() {
 
 // HasPlugins returns true if any plugins are configured.
 func (m *Manager) HasPlugins() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.plugins) > 0
+	return len(m.plugins.Load().m) > 0
 }
 
 // Healthy returns true if at least one plugin process is alive and not
 // permanently failed. Used by the readiness probe.
 func (m *Manager) Healthy() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, inst := range m.plugins {
+	for _, inst := range m.plugins.Load().m {
 		if !inst.failed.Load() && !inst.client.Exited() {
 			return true
 		}
