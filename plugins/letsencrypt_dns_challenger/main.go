@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	pb "github.com/mai/pdag/proto/authz"
 	"github.com/mai/pdag/sdk"
@@ -26,7 +27,7 @@ type rrset struct {
 	ChangeType string `json:"changetype"`
 }
 
-func (p *challengerPlugin) Authorize(_ context.Context, req *pb.HttpRequest) (*pb.AuthorizeResponse, error) {
+func (p *challengerPlugin) Authorize(ctx context.Context, req *pb.HttpRequest) (*pb.AuthorizeResponse, error) {
 	// Only allow PATCH to zone endpoints.
 	if req.Method != "PATCH" || !isZonePath(req.Path) {
 		return &pb.AuthorizeResponse{
@@ -67,7 +68,7 @@ func (p *challengerPlugin) Authorize(_ context.Context, req *pb.HttpRequest) (*p
 
 		// Validate that the underlying FQDN resolves.
 		fqdn := strings.TrimPrefix(rr.Name, "_acme-challenge.")
-		if !resolvable(fqdn) {
+		if !resolvable(ctx, fqdn) {
 			return &pb.AuthorizeResponse{
 				Decision: pb.Decision_DENY,
 				Reason:   fmt.Sprintf("letsencrypt: FQDN %s does not resolve", fqdn),
@@ -88,15 +89,25 @@ func isZonePath(path string) bool {
 	return len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "servers" && parts[4] == "zones"
 }
 
+var resolver = &net.Resolver{}
+
+const dnsTimeout = 200 * time.Millisecond
+
 // resolvable checks if the FQDN has at least one A, AAAA, or CNAME record.
-func resolvable(fqdn string) bool {
+// Uses context-aware lookups with a per-lookup timeout to avoid blocking the
+// plugin when DNS is slow.
+func resolvable(ctx context.Context, fqdn string) bool {
 	// Try A/AAAA first.
-	addrs, err := net.LookupHost(fqdn)
+	lookupCtx, cancel := context.WithTimeout(ctx, dnsTimeout)
+	defer cancel()
+	addrs, err := resolver.LookupHost(lookupCtx, fqdn)
 	if err == nil && len(addrs) > 0 {
 		return true
 	}
 	// Try CNAME.
-	cname, err := net.LookupCNAME(fqdn)
+	lookupCtx, cancel = context.WithTimeout(ctx, dnsTimeout)
+	defer cancel()
+	cname, err := resolver.LookupCNAME(lookupCtx, fqdn)
 	return err == nil && cname != "" && cname != fqdn
 }
 
