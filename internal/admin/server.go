@@ -1,21 +1,34 @@
 package admin
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/mai/pdag/internal/ratelimit"
+	"github.com/mai/pdag/internal/ratelimit/token"
 	"github.com/mai/pdag/internal/store"
 )
 
+const adminMaxBodyBytes = 64 * 1024 // 64 KiB
+
 // NewServer returns an http.Server for the admin API on the given address.
 func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToken string) *http.Server {
+	rl := token.New(token.Config{Rate: 10, Burst: 50})
+	handler := withRateLimit(rl, maxBodyBytes(adminMaxBodyBytes, Handler(mgr, keygen, adminToken)))
 	return &http.Server{
-		Addr:    addr,
-		Handler: Handler(mgr, keygen, adminToken),
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 }
 
@@ -33,7 +46,32 @@ func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.
 	return mux
 }
 
+func maxBodyBytes(maxBytes int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withRateLimit(rl ratelimit.RateLimiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+		if !rl.Allow(ip) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func withAuth(token string, next http.HandlerFunc) http.HandlerFunc {
+	// Precompute the HMAC of the expected token so we only hash once at init.
+	tokenKey := []byte(token)
+	tokenMAC := hmacHash([]byte(token), tokenKey)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if token == "" {
 			http.Error(w, "admin API not configured", http.StatusServiceUnavailable)
@@ -45,12 +83,19 @@ func withAuth(token string, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		got := strings.TrimPrefix(auth, "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+		gotMAC := hmacHash([]byte(got), tokenKey)
+		if subtle.ConstantTimeCompare(gotMAC, tokenMAC) != 1 {
 			http.Error(w, "invalid bearer token", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
 	}
+}
+
+func hmacHash(data, key []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(data)
+	return mac.Sum(nil)
 }
 
 type createKeyRequest struct {

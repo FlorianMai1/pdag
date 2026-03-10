@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mai/pdag/internal/admin"
@@ -175,5 +176,71 @@ func TestUpdateRoles(t *testing.T) {
 	k, _ := mgr.GetByID(req.Context(), created.ID)
 	if len(k.Roles) != 2 || k.Roles[0] != "admin" || k.Roles[1] != "read_zones" {
 		t.Errorf("roles = %v, want [admin read_zones]", k.Roles)
+	}
+}
+
+func newFullHandler() http.Handler {
+	mgr := memory.NewStore()
+	srv := admin.NewServer(":0", mgr, testKeygen, testToken)
+	return srv.Handler
+}
+
+func TestBodySizeLimit(t *testing.T) {
+	h := newFullHandler()
+
+	// 64 KiB + 1 byte should be rejected.
+	oversized := strings.Repeat("x", 64*1024+1)
+	body := `{"principal":"` + oversized + `","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("oversized body: status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestRateLimitOnAdmin(t *testing.T) {
+	h := newFullHandler()
+
+	// Burst is 50 — send 55 requests, the last should be 429.
+	var lastCode int
+	for i := 0; i < 55; i++ {
+		req := httptest.NewRequest("GET", "/admin/keys", nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.RemoteAddr = "10.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		lastCode = rec.Code
+	}
+
+	if lastCode != http.StatusTooManyRequests {
+		t.Errorf("after exceeding burst: status = %d, want %d", lastCode, http.StatusTooManyRequests)
+	}
+}
+
+func TestRateLimitPerIP(t *testing.T) {
+	h := newFullHandler()
+
+	// Exhaust burst for IP A.
+	for i := 0; i < 55; i++ {
+		req := httptest.NewRequest("GET", "/admin/keys", nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.RemoteAddr = "10.0.0.2:12345"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+	}
+
+	// IP B should still work.
+	req := httptest.NewRequest("GET", "/admin/keys", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.RemoteAddr = "10.0.0.3:12345"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("different IP after rate limit: status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }
