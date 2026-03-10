@@ -102,11 +102,13 @@ The header stripping removes **all** client headers, including `Accept`. PowerDN
 
 **Fix:** Replaced package-level `net.LookupHost`/`net.LookupCNAME` with context-aware `net.Resolver` methods. Each DNS lookup now gets a 200ms timeout derived from the parent gRPC context, leaving headroom within the 500ms plugin timeout for multiple RRsets. The `Authorize` method now uses the incoming `context.Context` instead of discarding it.
 
-### 13. Token bucket rate limiter holds global mutex for all principals
+### 13. Token bucket rate limiter holds global mutex for all principals — ADDRESSED
 
-**File:** `internal/ratelimit/token/limiter.go:50`
+**File:** `internal/ratelimit/token/limiter.go`
 
 All `Allow()` calls contend on a single `sync.Mutex`. Under high concurrency with many principals, this becomes a bottleneck. A `sync.Map` or sharded map would scale better.
+
+**Fix:** Replaced the global `sync.Mutex` + `map[string]*bucket` with `sync.Map` + per-bucket `sync.Mutex`. Different principals never contend. The call counter uses `atomic.Int64` instead of a mutex-guarded int. Cleanup uses `sync.Map.Range` with per-bucket lock checks for staleness.
 
 ### 14. Audit log entry records `start` time as `Timestamp`
 

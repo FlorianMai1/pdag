@@ -88,17 +88,17 @@ func TestCleanup(t *testing.T) {
 	l.Allow("stale")
 
 	// Force the bucket to look stale.
-	l.mu.Lock()
-	l.buckets["stale"].lastCheck = time.Now().Add(-10 * time.Minute)
-	l.mu.Unlock()
+	val, _ := l.buckets.Load("stale")
+	b := val.(*bucket)
+	b.mu.Lock()
+	b.lastCheck = time.Now().Add(-10 * time.Minute)
+	b.mu.Unlock()
 
 	// Next call triggers cleanup.
 	l.Allow("fresh")
 
-	l.mu.Lock()
-	_, staleExists := l.buckets["stale"]
-	_, freshExists := l.buckets["fresh"]
-	l.mu.Unlock()
+	_, staleExists := l.buckets.Load("stale")
+	_, freshExists := l.buckets.Load("fresh")
 
 	if staleExists {
 		t.Error("stale bucket should have been cleaned up")

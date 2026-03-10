@@ -3,6 +3,7 @@ package token
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mai/pdag/internal/ratelimit"
@@ -12,16 +13,17 @@ import (
 var _ ratelimit.RateLimiter = (*Limiter)(nil)
 
 // Limiter tracks per-principal token buckets.
+// Each bucket has its own mutex so different principals never contend.
 type Limiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	rate     float64 // tokens per second
-	burst    int     // max tokens (bucket capacity)
-	cleanupN int     // clean up every N calls to Allow
-	calls    int
+	buckets  sync.Map     // map[string]*bucket
+	rate     float64      // tokens per second
+	burst    int          // max tokens (bucket capacity)
+	cleanupN int64        // clean up every N calls to Allow
+	calls    atomic.Int64 // total Allow calls (lock-free counter)
 }
 
 type bucket struct {
+	mu        sync.Mutex
 	tokens    float64
 	lastCheck time.Time
 }
@@ -35,7 +37,6 @@ type Config struct {
 // New creates a new per-principal token bucket rate limiter.
 func New(cfg Config) *Limiter {
 	return &Limiter{
-		buckets:  make(map[string]*bucket),
 		rate:     cfg.Rate,
 		burst:    cfg.Burst,
 		cleanupN: 1000,
@@ -47,23 +48,20 @@ func New(cfg Config) *Limiter {
 func (l *Limiter) Allow(principal string) bool {
 	now := time.Now()
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.calls++
-	if l.calls%l.cleanupN == 0 {
+	n := l.calls.Add(1)
+	if n%l.cleanupN == 0 {
 		l.cleanup(now)
 	}
 
-	b, ok := l.buckets[principal]
-	if !ok {
-		b = &bucket{
-			tokens:    float64(l.burst) - 1, // consume one token
-			lastCheck: now,
-		}
-		l.buckets[principal] = b
-		return true
+	newBucket := &bucket{
+		tokens:    float64(l.burst),
+		lastCheck: now,
 	}
+	val, _ := l.buckets.LoadOrStore(principal, newBucket)
+	b := val.(*bucket)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	// Refill tokens based on elapsed time.
 	elapsed := now.Sub(b.lastCheck).Seconds()
@@ -81,12 +79,17 @@ func (l *Limiter) Allow(principal string) bool {
 	return true
 }
 
-// cleanup removes stale buckets that have been full for a while.
+// cleanup removes stale buckets that have been idle for a while.
 func (l *Limiter) cleanup(now time.Time) {
 	staleThreshold := 5 * time.Minute
-	for k, b := range l.buckets {
-		if now.Sub(b.lastCheck) > staleThreshold {
-			delete(l.buckets, k)
+	l.buckets.Range(func(key, val any) bool {
+		b := val.(*bucket)
+		b.mu.Lock()
+		stale := now.Sub(b.lastCheck) > staleThreshold
+		b.mu.Unlock()
+		if stale {
+			l.buckets.Delete(key)
 		}
-	}
+		return true
+	})
 }
