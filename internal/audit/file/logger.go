@@ -30,8 +30,9 @@ type Logger struct {
 	stop   chan struct{} // signals flushLoop to drain and exit
 	done   chan struct{} // closed when flushLoop has finished
 
-	pubMu  sync.RWMutex // held for read by Publish, held for write by Close
-	closed bool
+	pubMu    sync.RWMutex // held for read by Publish, held for write by Close
+	closed   bool
+	closeOnce sync.Once
 }
 
 // NewLogger opens (or creates) the audit log file in append mode
@@ -132,21 +133,24 @@ func (l *Logger) Reopen() error {
 }
 
 // Close stops accepting new entries, drains remaining buffered entries,
-// and closes the file. Safe to call concurrently with Publish.
+// and closes the file. Safe to call concurrently with Publish and idempotent.
 func (l *Logger) Close() error {
-	// Prevent new Publish calls from sending on the channel.
-	l.pubMu.Lock()
-	l.closed = true
-	l.pubMu.Unlock()
+	var err error
+	l.closeOnce.Do(func() {
+		// Prevent new Publish calls from sending on the channel.
+		l.pubMu.Lock()
+		l.closed = true
+		l.pubMu.Unlock()
 
-	// Signal flushLoop to drain and exit.
-	close(l.stop)
-	<-l.done
+		// Signal flushLoop to drain and exit.
+		close(l.stop)
+		<-l.done
 
-	l.fileMu.Lock()
-	defer l.fileMu.Unlock()
-	if l.file != nil {
-		return l.file.Close()
-	}
-	return nil
+		l.fileMu.Lock()
+		defer l.fileMu.Unlock()
+		if l.file != nil {
+			err = l.file.Close()
+		}
+	})
+	return err
 }
