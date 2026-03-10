@@ -3,6 +3,7 @@ package admin_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -176,6 +177,64 @@ func TestUpdateRoles(t *testing.T) {
 	k, _ := mgr.GetByID(req.Context(), created.ID)
 	if len(k.Roles) != 2 || k.Roles[0] != "admin" || k.Roles[1] != "read_zones" {
 		t.Errorf("roles = %v, want [admin read_zones]", k.Roles)
+	}
+}
+
+func TestListKeysPagination(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create 5 keys.
+	for i := 0; i < 5; i++ {
+		body := fmt.Sprintf(`{"principal":"user%d","roles":["read"]}`, i)
+		req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer test-token")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %d: status = %d", i, rec.Code)
+		}
+	}
+
+	// Default (no params) returns all 5.
+	req := httptest.NewRequest("GET", "/admin/keys", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var keys []json.RawMessage
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 5 {
+		t.Fatalf("default: got %d keys, want 5", len(keys))
+	}
+
+	// limit=2 returns 2.
+	req = httptest.NewRequest("GET", "/admin/keys?limit=2", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 2 {
+		t.Fatalf("limit=2: got %d keys, want 2", len(keys))
+	}
+
+	// limit=2&offset=3 returns 2.
+	req = httptest.NewRequest("GET", "/admin/keys?limit=2&offset=3", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 2 {
+		t.Fatalf("limit=2&offset=3: got %d keys, want 2", len(keys))
+	}
+
+	// offset=10 returns 0.
+	req = httptest.NewRequest("GET", "/admin/keys?offset=10", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 0 {
+		t.Fatalf("offset=10: got %d keys, want 0", len(keys))
 	}
 }
 

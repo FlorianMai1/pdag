@@ -118,11 +118,13 @@ The entry timestamp is `start.UTC()` -- the time the request *began*, not when t
 
 **Fix:** Changed `Timestamp` from `start.UTC()` to `time.Now().UTC()`, reflecting when the response completed and the audit entry was created. The start time is still derivable as `timestamp - latency_ms`.
 
-### 15. No pagination on `GET /admin/keys`
+### 15. No pagination on `GET /admin/keys` — ADDRESSED
 
 **File:** `internal/admin/server.go:149-173`
 
 `List()` fetches all keys from the database with no pagination. With thousands of keys, this could be slow and memory-intensive.
+
+**Fix:** Added `ListPaged(ctx, limit, offset)` to the `KeyManager` interface with implementations in both postgres (SQL `LIMIT/OFFSET`) and memory (sort by `CreatedAt` then slice) stores. The `GET /admin/keys` handler now parses `?limit=N&offset=N` query parameters with a default limit of 100 and a maximum of 1000. Invalid or missing values fall back to defaults.
 
 ### 16. Circuit breaker `Allow()` in half-open state allows unbounded concurrent calls
 

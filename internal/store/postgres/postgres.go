@@ -136,6 +136,36 @@ func (s *Store) List(ctx context.Context) ([]*store.KeyRecord, error) {
 	return result, rows.Err()
 }
 
+func (s *Store) ListPaged(ctx context.Context, limit, offset int) ([]*store.KeyRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+		 FROM api_keys ORDER BY created_at LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list keys paged: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*store.KeyRecord
+	for rows.Next() {
+		rec := &store.KeyRecord{}
+		var expiresAt sql.NullTime
+		var roles TextArray
+		if err := rows.Scan(
+			&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
+			&roles, &rec.Enabled, &expiresAt,
+			&rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan key: %w", err)
+		}
+		rec.Roles = []string(roles)
+		if expiresAt.Valid {
+			rec.ExpiresAt = &expiresAt.Time
+		}
+		result = append(result, rec)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE api_keys SET enabled = $1, updated_at = NOW() WHERE id = $2`,

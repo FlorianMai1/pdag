@@ -28,6 +28,7 @@ type KeyManager interface {
 	KeyStore
 	Create(ctx context.Context, rec *KeyRecord) error
 	List(ctx context.Context) ([]*KeyRecord, error)
+	ListPaged(ctx context.Context, limit, offset int) ([]*KeyRecord, error)
 	SetEnabled(ctx context.Context, id string, enabled bool) error
 	SetRoles(ctx context.Context, id string, roles []string) error
 	UpdateHash(ctx context.Context, id string, newHash string, newHmacKeyID string) error

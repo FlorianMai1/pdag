@@ -5,6 +5,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -66,6 +67,41 @@ func (m *Store) List(_ context.Context) ([]*store.KeyRecord, error) {
 		cp.Roles = make([]string, len(rec.Roles))
 		copy(cp.Roles, rec.Roles)
 		result = append(result, &cp)
+	}
+	return result, nil
+}
+
+func (m *Store) ListPaged(_ context.Context, limit, offset int) ([]*store.KeyRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Collect and sort by CreatedAt for stable pagination.
+	all := make([]*store.KeyRecord, 0, len(m.keys))
+	for _, rec := range m.keys {
+		all = append(all, rec)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.Before(all[j].CreatedAt)
+	})
+
+	// Apply offset.
+	if offset >= len(all) {
+		return nil, nil
+	}
+	all = all[offset:]
+
+	// Apply limit.
+	if limit < len(all) {
+		all = all[:limit]
+	}
+
+	// Return copies.
+	result := make([]*store.KeyRecord, len(all))
+	for i, rec := range all {
+		cp := *rec
+		cp.Roles = make([]string, len(rec.Roles))
+		copy(cp.Roles, rec.Roles)
+		result[i] = &cp
 	}
 	return result, nil
 }

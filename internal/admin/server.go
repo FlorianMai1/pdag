@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,9 +192,31 @@ type keyResponse struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+const (
+	defaultLimit = 100
+	maxLimit     = 1000
+)
+
 func listKeys(mgr store.KeyManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		keys, err := mgr.List(r.Context())
+		limit := defaultLimit
+		offset := 0
+
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				offset = n
+			}
+		}
+
+		keys, err := mgr.ListPaged(r.Context(), limit, offset)
 		if err != nil {
 			slog.Error("list keys", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

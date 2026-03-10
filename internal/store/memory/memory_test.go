@@ -2,7 +2,9 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/mai/pdag/internal/store"
 )
@@ -101,6 +103,70 @@ func TestStoreCRUD(t *testing.T) {
 	// Delete missing should error.
 	if err := s.Delete(ctx, "k1"); err == nil {
 		t.Fatal("expected error deleting missing key")
+	}
+}
+
+func TestListPaged(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore()
+
+	// Create 5 keys with staggered CreatedAt for deterministic order.
+	for i := 0; i < 5; i++ {
+		rec := &store.KeyRecord{
+			ID:        fmt.Sprintf("k%d", i),
+			Principal: fmt.Sprintf("user%d", i),
+			Roles:     []string{"read"},
+			Enabled:   true,
+			CreatedAt: time.Date(2025, 1, 1, 0, 0, i, 0, time.UTC),
+		}
+		if err := s.Create(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Page 1: limit=2, offset=0 → k0, k1
+	page, err := s.ListPaged(ctx, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page))
+	}
+	if page[0].ID != "k0" || page[1].ID != "k1" {
+		t.Errorf("page1 = [%s, %s], want [k0, k1]", page[0].ID, page[1].ID)
+	}
+
+	// Page 2: limit=2, offset=2 → k2, k3
+	page, err = s.ListPaged(ctx, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page))
+	}
+	if page[0].ID != "k2" || page[1].ID != "k3" {
+		t.Errorf("page2 = [%s, %s], want [k2, k3]", page[0].ID, page[1].ID)
+	}
+
+	// Page 3: limit=2, offset=4 → k4
+	page, err = s.ListPaged(ctx, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 1 {
+		t.Fatalf("page3 len = %d, want 1", len(page))
+	}
+	if page[0].ID != "k4" {
+		t.Errorf("page3 = [%s], want [k4]", page[0].ID)
+	}
+
+	// Beyond end: offset=10 → empty
+	page, err = s.ListPaged(ctx, 2, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 0 {
+		t.Fatalf("beyond end len = %d, want 0", len(page))
 	}
 }
 
