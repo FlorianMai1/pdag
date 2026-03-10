@@ -32,6 +32,7 @@ type pluginInstance struct {
 	timeout    time.Duration
 	cfg        authz.PluginConfig
 	restarting atomic.Bool // true while a restart goroutine is running
+	failed     atomic.Bool // true after all restart attempts are exhausted
 }
 
 // Manager manages all authorization plugins.
@@ -179,6 +180,12 @@ func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpReq
 }
 
 func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInstance, req *pb.HttpRequest) (decision string, reason string) {
+	// Permanently failed plugins are not retried.
+	if inst.failed.Load() {
+		metrics.AuthzDecisionTotal.WithLabelValues(name, "failed").Inc()
+		return "deny", fmt.Sprintf("plugin permanently failed: %s", name)
+	}
+
 	// Check circuit breaker first.
 	if !inst.breaker.Allow() {
 		metrics.AuthzDecisionTotal.WithLabelValues(name, "circuit_open").Inc()
@@ -205,7 +212,7 @@ func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInsta
 		slog.Error("plugin call failed", "plugin", name, "error", err)
 
 		// If the plugin process has exited, attempt restart (one at a time).
-		if inst.client.Exited() && inst.restarting.CompareAndSwap(false, true) {
+		if inst.client.Exited() && !inst.failed.Load() && inst.restarting.CompareAndSwap(false, true) {
 			slog.Warn("plugin process exited, scheduling restart", "plugin", name)
 			go m.restartPlugin(name, inst.cfg)
 		}
@@ -262,13 +269,14 @@ func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
 		return
 	}
 
-	// All attempts exhausted — allow future crash detection to try again.
+	// All attempts exhausted — mark plugin as permanently failed to prevent
+	// infinite restart loops from callPlugin detecting the dead process.
 	m.mu.RLock()
 	if inst, ok := m.plugins[name]; ok {
-		inst.restarting.Store(false)
+		inst.failed.Store(true)
 	}
 	m.mu.RUnlock()
-	slog.Error("plugin restart exhausted all attempts", "plugin", name)
+	slog.Error("plugin restart exhausted all attempts, marked as permanently failed", "plugin", name)
 }
 
 // Close cancels in-flight restarts and kills all plugin subprocesses.
