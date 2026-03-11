@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mai/pdag/internal/admin"
 	adminhmac "github.com/mai/pdag/internal/admin/hmac"
+	"github.com/mai/pdag/internal/store"
 	"github.com/mai/pdag/internal/store/memory"
 )
 
@@ -235,6 +237,74 @@ func TestListKeysPagination(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &keys)
 	if len(keys) != 0 {
 		t.Fatalf("offset=10: got %d keys, want 0", len(keys))
+	}
+}
+
+func TestPurgeExpiredKeys(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	past := time.Now().Add(-1 * time.Hour)
+	future := time.Now().Add(1 * time.Hour)
+
+	// Create expired key directly in store.
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_expired1", Principal: "alice", Enabled: true,
+		ExpiresAt: &past, CreatedAt: time.Now(),
+	})
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_expired2", Principal: "bob", Enabled: true,
+		ExpiresAt: &past, CreatedAt: time.Now(),
+	})
+	// Non-expired key.
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_valid", Principal: "carol", Enabled: true,
+		ExpiresAt: &future, CreatedAt: time.Now(),
+	})
+	// Key with no expiry.
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_noexpiry", Principal: "dave", Enabled: true,
+		CreatedAt: time.Now(),
+	})
+
+	// Purge expired.
+	req := httptest.NewRequest("DELETE", "/admin/keys/expired", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("purge status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var result struct {
+		Deleted int64 `json:"deleted"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &result)
+	if result.Deleted != 2 {
+		t.Errorf("deleted = %d, want 2", result.Deleted)
+	}
+
+	// Verify remaining keys.
+	keys, _ := mgr.List(nil)
+	if len(keys) != 2 {
+		t.Fatalf("remaining = %d, want 2", len(keys))
+	}
+}
+
+func TestPurgeExpiredDoesNotMatchSingleKeyRoute(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// DELETE /admin/keys/expired should not be routed to deleteKey with id="expired".
+	req := httptest.NewRequest("DELETE", "/admin/keys/expired", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	// Should be 200 (purge response), not 500 (deleteKey with key not found).
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected purge endpoint (200), got status %d", rec.Code)
 	}
 }
 

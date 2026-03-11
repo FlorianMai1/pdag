@@ -170,6 +170,63 @@ func TestListPaged(t *testing.T) {
 	}
 }
 
+func TestDeleteExpired(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore()
+
+	past := time.Now().Add(-1 * time.Hour)
+	future := time.Now().Add(1 * time.Hour)
+
+	// Key with past expiry.
+	s.Create(ctx, &store.KeyRecord{
+		ID:        "expired1",
+		Enabled:   true,
+		ExpiresAt: &past,
+		CreatedAt: time.Now(),
+	})
+	// Key with future expiry.
+	s.Create(ctx, &store.KeyRecord{
+		ID:        "valid1",
+		Enabled:   true,
+		ExpiresAt: &future,
+		CreatedAt: time.Now(),
+	})
+	// Key with no expiry.
+	s.Create(ctx, &store.KeyRecord{
+		ID:        "noexpiry1",
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
+	// Another expired key.
+	s.Create(ctx, &store.KeyRecord{
+		ID:        "expired2",
+		Enabled:   true,
+		ExpiresAt: &past,
+		CreatedAt: time.Now(),
+	})
+
+	n, err := s.DeleteExpired(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("deleted = %d, want 2", n)
+	}
+
+	// Verify remaining keys.
+	list, _ := s.List(ctx)
+	if len(list) != 2 {
+		t.Fatalf("remaining = %d, want 2", len(list))
+	}
+	ids := map[string]bool{}
+	for _, k := range list {
+		ids[k.ID] = true
+	}
+	if !ids["valid1"] || !ids["noexpiry1"] {
+		t.Errorf("unexpected remaining keys: %v", ids)
+	}
+}
+
 func TestStoreReturnsCopies(t *testing.T) {
 	ctx := context.Background()
 	s := NewStore()

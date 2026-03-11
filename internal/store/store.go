@@ -33,5 +33,6 @@ type KeyManager interface {
 	SetRoles(ctx context.Context, id string, roles []string) error
 	UpdateHash(ctx context.Context, id string, newHash string, newHmacKeyID string) error
 	Delete(ctx context.Context, id string) error
+	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 	AuditKeyEvent(ctx context.Context, keyID, action, changedBy string, oldValues, newValues any) error
 }

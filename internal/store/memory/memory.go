@@ -154,6 +154,19 @@ func (m *Store) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *Store) DeleteExpired(_ context.Context, before time.Time) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	for id, rec := range m.keys {
+		if rec.ExpiresAt != nil && rec.ExpiresAt.Before(before) {
+			delete(m.keys, id)
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *Store) AuditKeyEvent(_ context.Context, _, _, _ string, _, _ any) error {
 	return nil
 }

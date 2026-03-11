@@ -205,6 +205,19 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return checkRowsAffected(res, id)
 }
 
+func (s *Store) DeleteExpired(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM api_keys WHERE expires_at IS NOT NULL AND expires_at < $1`, before)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired keys: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("delete expired rows affected: %w", err)
+	}
+	return n, nil
+}
+
 func (s *Store) AuditKeyEvent(ctx context.Context, keyID, action, changedBy string, oldValues, newValues any) error {
 	oldJSON, err := json.Marshal(oldValues)
 	if err != nil {

@@ -39,6 +39,7 @@ func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.
 
 	mux.HandleFunc("POST /admin/keys", withAuth(adminToken, createKey(mgr, keygen)))
 	mux.HandleFunc("GET /admin/keys", withAuth(adminToken, listKeys(mgr)))
+	mux.HandleFunc("DELETE /admin/keys/expired", withAuth(adminToken, purgeExpired(mgr)))
 	mux.HandleFunc("DELETE /admin/keys/{id}", withAuth(adminToken, deleteKey(mgr)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/disable", withAuth(adminToken, setEnabled(mgr, false)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
@@ -97,6 +98,25 @@ func hmacHash(data, key []byte) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(data)
 	return mac.Sum(nil)
+}
+
+func purgeExpired(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		n, err := mgr.DeleteExpired(r.Context(), time.Now())
+		if err != nil {
+			slog.Error("purge expired keys", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), "", "purge_expired", "admin_api", nil, map[string]any{
+			"deleted": n,
+		}); err != nil {
+			slog.Error("audit purge expired", "error", err)
+		}
+		slog.Info("purged expired keys", "count", n)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"deleted": n})
+	}
 }
 
 type createKeyRequest struct {
