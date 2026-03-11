@@ -116,7 +116,7 @@ func getKey(mgr store.KeyManager) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(keyResponse{
+		_ = json.NewEncoder(w).Encode(keyResponse{
 			ID:        rec.ID,
 			Principal: rec.Principal,
 			Roles:     rec.Roles,
@@ -142,7 +142,7 @@ func purgeExpired(mgr store.KeyManager) http.HandlerFunc {
 		}
 		slog.Info("purged expired keys", "count", n)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]int64{"deleted": n})
+		_ = json.NewEncoder(w).Encode(map[string]int64{"deleted": n})
 	}
 }
 
@@ -221,7 +221,7 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createKeyResponse{
+		_ = json.NewEncoder(w).Encode(createKeyResponse{
 			ID:        keyID,
 			Secret:    secret,
 			Principal: req.Principal,
@@ -289,7 +289,7 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 

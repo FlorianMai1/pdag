@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-plugin"
+
 	"github.com/mai/pdag/internal/authz"
 	"github.com/mai/pdag/internal/metrics"
 	pb "github.com/mai/pdag/proto/authz"
@@ -45,7 +46,7 @@ type pluginMap struct {
 type Manager struct {
 	plugins atomic.Pointer[pluginMap] // lock-free reads
 	writeMu sync.Mutex                // serializes mutations (restartPlugin, Close)
-	done    chan struct{}              // closed on Close() to cancel in-flight restarts
+	done    chan struct{}             // closed on Close() to cancel in-flight restarts
 	closed  atomic.Bool               // prevents restartPlugin from re-adding after Close
 }
 
@@ -271,7 +272,7 @@ func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
 	for attempt, delay := range backoff {
 		select {
 		case <-m.done:
-			slog.Info("plugin restart cancelled by shutdown", "plugin", name)
+			slog.Info("plugin restart canceled by shutdown", "plugin", name)
 			return
 		case <-time.After(delay):
 		}

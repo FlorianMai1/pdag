@@ -30,8 +30,8 @@ type Logger struct {
 	stop   chan struct{} // signals flushLoop to drain and exit
 	done   chan struct{} // closed when flushLoop has finished
 
-	pubMu    sync.RWMutex // held for read by Publish, held for write by Close
-	closed   bool
+	pubMu     sync.RWMutex // held for read by Publish, held for write by Close
+	closed    bool
 	closeOnce sync.Once
 }
 

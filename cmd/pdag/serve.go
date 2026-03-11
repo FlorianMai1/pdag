@@ -36,7 +36,7 @@ import (
 func runServe() error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config file")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -216,7 +216,7 @@ func newProxyServer(listenAddr string, maxBodySize int64, rl ratelimit.RateLimit
 	mux.Handle("/", handler)
 	mux.Handle("GET /healthz", probeChain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})))
 	mux.Handle("GET /readyz", probeChain(readinessCheck(keyStore, pluginMgr, lb)))
 
@@ -253,7 +253,7 @@ func readinessCheck(ks store.KeyStore, pluginMgr *authzplugin.Manager, lb proxy.
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}
 }
 

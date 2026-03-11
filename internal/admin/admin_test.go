@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -246,15 +247,15 @@ func TestListKeysFiltering(t *testing.T) {
 
 	// Create keys with different principals and roles directly in store.
 	now := time.Now()
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_alice1", Principal: "alice", Roles: []string{"admin", "read_zones"},
 		Enabled: true, CreatedAt: now,
 	})
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_alice2", Principal: "alice", Roles: []string{"read_zones"},
 		Enabled: true, CreatedAt: now.Add(time.Second),
 	})
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_bob1", Principal: "bob", Roles: []string{"admin"},
 		Enabled: true, CreatedAt: now.Add(2 * time.Second),
 	})
@@ -310,21 +311,21 @@ func TestPurgeExpiredKeys(t *testing.T) {
 	future := time.Now().Add(1 * time.Hour)
 
 	// Create expired key directly in store.
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_expired1", Principal: "alice", Enabled: true,
 		ExpiresAt: &past, CreatedAt: time.Now(),
 	})
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_expired2", Principal: "bob", Enabled: true,
 		ExpiresAt: &past, CreatedAt: time.Now(),
 	})
 	// Non-expired key.
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_valid", Principal: "carol", Enabled: true,
 		ExpiresAt: &future, CreatedAt: time.Now(),
 	})
 	// Key with no expiry.
-	mgr.Create(nil, &store.KeyRecord{
+	mgr.Create(context.Background(), &store.KeyRecord{
 		ID: "k_noexpiry", Principal: "dave", Enabled: true,
 		CreatedAt: time.Now(),
 	})
@@ -348,7 +349,7 @@ func TestPurgeExpiredKeys(t *testing.T) {
 	}
 
 	// Verify remaining keys.
-	keys, _ := mgr.List(nil)
+	keys, _ := mgr.List(context.Background())
 	if len(keys) != 2 {
 		t.Fatalf("remaining = %d, want 2", len(keys))
 	}

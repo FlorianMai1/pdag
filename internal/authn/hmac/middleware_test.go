@@ -62,10 +62,10 @@ func TestAuthnMiddleware(t *testing.T) {
 	s, cfg := setupTest(t)
 
 	tests := []struct {
-		name           string
-		apiKey         string
-		wantStatus     int
-		wantPrincipal  string
+		name          string
+		apiKey        string
+		wantStatus    int
+		wantPrincipal string
 	}{
 		{
 			name:       "missing header",

@@ -14,8 +14,8 @@ const (
 	rolesKey       contextKey = "roles"
 	bodyBytesKey   contextKey = "bodyBytes"
 	bodySizePtrKey contextKey = "bodySizePtr"
-	authzResultKey  contextKey = "authzResult"
-	statusCodeKey   contextKey = "statusCodePtr"
+	authzResultKey contextKey = "authzResult"
+	statusCodeKey  contextKey = "statusCodePtr"
 )
 
 type AuthzResult struct {

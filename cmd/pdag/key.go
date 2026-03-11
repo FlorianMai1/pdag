@@ -50,7 +50,7 @@ type keyEnv struct {
 }
 
 func openKeyEnv(fs *flag.FlagSet, configPath *string) (*keyEnv, func(), error) {
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {

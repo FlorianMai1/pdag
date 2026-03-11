@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -214,17 +213,17 @@ func startPDNS(ctx context.Context, dbIP string, nw *testcontainers.DockerNetwor
 		WaitingFor:   wait.ForListeningPort("8081").WithStartupTimeout(30 * time.Second),
 		Env: map[string]string{
 			"PDNS_AUTH_API_KEY":         "test-api-key",
-			"PDNS_launch":              "gpgsql",
-			"PDNS_gpgsql_host":         dbIP,
-			"PDNS_gpgsql_port":         "5432",
-			"PDNS_gpgsql_user":         "pdns",
-			"PDNS_gpgsql_password":     "pdns-secret",
-			"PDNS_gpgsql_dbname":       "pdns",
-			"PDNS_webserver":           "yes",
-			"PDNS_webserver_address":   "0.0.0.0",
-			"PDNS_webserver_port":      "8081",
+			"PDNS_launch":               "gpgsql",
+			"PDNS_gpgsql_host":          dbIP,
+			"PDNS_gpgsql_port":          "5432",
+			"PDNS_gpgsql_user":          "pdns",
+			"PDNS_gpgsql_password":      "pdns-secret",
+			"PDNS_gpgsql_dbname":        "pdns",
+			"PDNS_webserver":            "yes",
+			"PDNS_webserver_address":    "0.0.0.0",
+			"PDNS_webserver_port":       "8081",
 			"PDNS_webserver_allow_from": "0.0.0.0/0",
-			"PDNS_api":                 "yes",
+			"PDNS_api":                  "yes",
 		},
 		Files: []testcontainers.ContainerFile{
 			{
@@ -330,10 +329,4 @@ func waitForPort(port string, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("port %s not reachable after %s", port, timeout)
-}
-
-// unmarshalBody is a helper for reading JSON response bodies in non-httpexpect contexts.
-func unmarshalBody(resp *http.Response, v interface{}) error {
-	defer resp.Body.Close()
-	return json.NewDecoder(resp.Body).Decode(v)
 }

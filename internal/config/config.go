@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -73,12 +74,12 @@ type RateLimit struct {
 }
 
 type Config struct {
-	Listen       string `mapstructure:"listen"`
-	MaxBodySize  int64  `mapstructure:"max_body_size"`
-	AuditLog     string `mapstructure:"audit_log"`
-	AdminToken   string `mapstructure:"admin_token"`
-	AdminTokenFile string `mapstructure:"admin_token_file"`
-	ShutdownWait time.Duration `mapstructure:"shutdown_wait"`
+	Listen         string        `mapstructure:"listen"`
+	MaxBodySize    int64         `mapstructure:"max_body_size"`
+	AuditLog       string        `mapstructure:"audit_log"`
+	AdminToken     string        `mapstructure:"admin_token"`
+	AdminTokenFile string        `mapstructure:"admin_token_file"`
+	ShutdownWait   time.Duration `mapstructure:"shutdown_wait"`
 
 	Upstreams   Upstreams    `mapstructure:"upstreams"`
 	DB          DB           `mapstructure:"db"`
@@ -131,7 +132,8 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configNotFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &configNotFound) {
 			return nil, fmt.Errorf("read config: %w", err)
 		}
 		// Config file not found is ok — env vars may provide everything.
