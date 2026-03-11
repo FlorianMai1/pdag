@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
@@ -55,6 +56,7 @@ type CircuitBreaker struct {
 
 type PluginConfig struct {
 	Path           string         `mapstructure:"path"`
+	SHA256         string         `mapstructure:"sha256"`
 	Timeout        time.Duration  `mapstructure:"timeout"`
 	CircuitBreaker CircuitBreaker `mapstructure:"circuit_breaker"`
 }
@@ -243,6 +245,14 @@ func (c *Config) validate() error {
 		}
 		if pc.Timeout < 0 {
 			return fmt.Errorf("plugins.%s.timeout must be >= 0, got %v", name, pc.Timeout)
+		}
+		if pc.SHA256 != "" {
+			if len(pc.SHA256) != 64 {
+				return fmt.Errorf("plugins.%s.sha256 must be 64 hex characters, got %d", name, len(pc.SHA256))
+			}
+			if _, err := hex.DecodeString(pc.SHA256); err != nil {
+				return fmt.Errorf("plugins.%s.sha256 is not valid hex: %w", name, err)
+			}
 		}
 	}
 

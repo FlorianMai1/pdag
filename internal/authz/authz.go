@@ -17,6 +17,7 @@ type Authorizer interface {
 // PluginConfig holds the resolved configuration for a single authorization plugin.
 type PluginConfig struct {
 	Path             string
+	SHA256           string
 	Timeout          time.Duration
 	FailureThreshold int
 	SuccessThreshold int

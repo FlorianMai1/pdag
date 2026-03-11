@@ -92,9 +92,15 @@ func hashFile(path string) (string, error) {
 func startPlugin(name string, pc authz.PluginConfig) (*pluginInstance, error) {
 	binHash, err := hashFile(pc.Path)
 	if err != nil {
+		if pc.SHA256 != "" {
+			return nil, fmt.Errorf("hash plugin binary %q: %w", pc.Path, err)
+		}
 		slog.Warn("could not hash plugin binary", "plugin", name, "path", pc.Path, "error", err)
 	} else {
 		slog.Info("plugin binary loaded", "plugin", name, "path", pc.Path, "sha256", binHash)
+		if pc.SHA256 != "" && binHash != pc.SHA256 {
+			return nil, fmt.Errorf("plugin %q hash mismatch: expected %s, got %s", name, pc.SHA256, binHash)
+		}
 	}
 
 	client := plugin.NewClient(&plugin.ClientConfig{
