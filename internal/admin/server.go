@@ -222,6 +222,9 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		if keys == nil {
+			keys = []*store.KeyRecord{}
+		}
 
 		resp := make([]keyResponse, len(keys))
 		for i, k := range keys {
