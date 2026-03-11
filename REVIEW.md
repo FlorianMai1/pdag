@@ -16,47 +16,61 @@ Expired keys are correctly rejected at request time but remain in the database f
 
 **Fix:** Added `DELETE /admin/keys/expired` endpoint that calls `DeleteExpired(ctx, time.Now())` on the store. Returns `{"deleted": N}`. Operators wire this to an external cron if they want periodic cleanup — no background magic. Added `DeleteExpired` to `KeyManager` interface with postgres and memory implementations, plus a partial index on `expires_at` (migration 002).
 
-## 3. No `GET /admin/keys/{id}` endpoint
+## 3. No `GET /admin/keys/{id}` endpoint — ADDRESSED
 
 **File:** `internal/admin/server.go`
 
 The admin API supports listing all keys with pagination but has no endpoint to retrieve a single key by ID. Operators must page through the full list to find a specific key's details.
 
-## 4. No key filtering by principal or role
+**Fix:** Added `GET /admin/keys/{id}` route with `getKey()` handler. Returns the key as JSON or 404 if not found.
+
+## 4. No key filtering by principal or role — ADDRESSED
 
 **File:** `internal/admin/server.go`
 
 `GET /admin/keys` only supports `limit` and `offset`. There is no `?principal=X` or `?role=Y` filter. Operators managing many keys must fetch everything client-side.
 
-## 5. Graceful shutdown doesn't check admin server error
+**Fix:** Added `?principal=X&role=Y` query parameters to `GET /admin/keys`. Added `ListFiltered` to the `KeyManager` interface with postgres (dynamic WHERE clause) and memory implementations. When no filters are provided, behavior is identical to the previous `ListPaged`.
+
+## 5. Graceful shutdown doesn't check admin server error — ADDRESSED
 
 **File:** `cmd/pdag/serve.go`
 
 The proxy server shutdown checks errors and passes a timeout context. The admin server shutdown has neither — its error is silently discarded and it uses a background context with no deadline.
 
-## 6. No `pdag config validate` subcommand
+**Fix:** Admin and metrics server shutdown errors are now logged via `slog.Error`.
 
-**File:** `cmd/pdag/main.go`
+## 6. No `pdag config validate` subcommand — ADDRESSED
+
+**File:** `cmd/pdag/main.go`, `cmd/pdag/validate.go`
 
 There is no way to validate a config file without starting the server. Operators deploying via CI/CD must start the full server to discover config errors.
 
-## 7. Metrics gaps
+**Fix:** Added `pdag validate --config <path>` subcommand that runs `config.Load()` and prints "config OK" on success.
 
-**Files:** `internal/metrics/metrics.go`, `internal/audit/file/logger.go`
+## 7. Metrics gaps — ADDRESSED
+
+**Files:** `internal/metrics/metrics.go`, `internal/metrics/dbpool.go`, `internal/audit/file/logger.go`, `cmd/pdag/serve.go`
 
 No metrics for: audit log queue depth/dropped entries, DB connection pool health, SIGHUP config reload events, or body buffer sizes.
 
-## 8. Plugin binary hash not enforced
+**Fix:** Added `pdag_audit_queue_depth` gauge (sampled on each Publish), `pdag_audit_dropped_total` counter, `pdag_sighup_total` counter, and `pdag_db_pool_*` metrics (open/idle/in_use connections, wait count) via a custom `prometheus.Collector` that reads `sql.DBStats` on each scrape.
 
-**File:** `internal/config/config.go`, `internal/authz/plugin/manager.go`
+## 8. Plugin binary hash not enforced — ADDRESSED
+
+**File:** `internal/config/config.go`, `internal/authz/plugin/manager.go`, `internal/authz/authz.go`
 
 Plugin binary hashes are logged at startup but a modified binary loads without error. An operator has no way to detect tampering without checking logs.
 
-## 9. No key expiry update endpoint
+**Fix:** Added optional `sha256` field to plugin config. When set, the computed hash must match exactly or the plugin refuses to start. When unset, hash is logged but not enforced (backwards compatible). Config validation rejects non-64-char or non-hex values.
 
-**File:** `internal/admin/server.go`
+## 9. No key expiry update endpoint — ADDRESSED
+
+**File:** `internal/admin/server.go`, `internal/store/store.go`
 
 Once created, a key's `expires_at` cannot be changed. Extending or shortening a key's lifetime requires deleting and recreating it, which changes the key ID and secret.
+
+**Fix:** Added `PATCH /admin/keys/{id}/expiry` endpoint accepting `{"expires_at": "RFC3339"}` or `{"expires_at": null}` to clear. Added `SetExpiresAt` to `KeyManager` interface with postgres and memory implementations.
 
 ## 10. No OpenTelemetry / distributed tracing
 
