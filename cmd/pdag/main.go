@@ -13,7 +13,7 @@ func main() {
 
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: pdag <command> [args]\n")
-		fmt.Fprintf(os.Stderr, "commands: serve, key\n")
+		fmt.Fprintf(os.Stderr, "commands: serve, key, validate\n")
 		os.Exit(1)
 	}
 
@@ -25,6 +25,11 @@ func main() {
 		}
 	case "key":
 		if err := runKey(); err != nil {
+			slog.Error("fatal", "error", err)
+			os.Exit(1)
+		}
+	case "validate":
+		if err := runValidate(); err != nil {
 			slog.Error("fatal", "error", err)
 			os.Exit(1)
 		}
