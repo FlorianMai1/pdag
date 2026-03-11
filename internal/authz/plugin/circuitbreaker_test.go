@@ -90,6 +90,36 @@ func TestCircuitBreakerReopensOnFailureInHalfOpen(t *testing.T) {
 	}
 }
 
+func TestCircuitBreakerHalfOpenLimitsConcurrency(t *testing.T) {
+	cb := NewCircuitBreaker("test", 2, 2, 10*time.Millisecond)
+
+	// Trip open.
+	cb.RecordFailure()
+	cb.RecordFailure()
+
+	// Wait for cooldown → half-open.
+	time.Sleep(15 * time.Millisecond)
+
+	// First call should be allowed (probe).
+	if !cb.Allow() {
+		t.Error("first half-open call should be allowed")
+	}
+	// Second concurrent call should be blocked.
+	if cb.Allow() {
+		t.Error("second half-open call should be blocked")
+	}
+
+	// After a successful probe, the next call should be allowed.
+	cb.RecordSuccess()
+	if !cb.Allow() {
+		t.Error("call after successful probe should be allowed")
+	}
+	// But again, only one at a time.
+	if cb.Allow() {
+		t.Error("second call after probe should be blocked")
+	}
+}
+
 func TestCircuitBreakerSuccessResetsClosed(t *testing.T) {
 	cb := NewCircuitBreaker("test", 3, 2, 5*time.Second)
 

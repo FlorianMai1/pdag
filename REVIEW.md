@@ -126,11 +126,13 @@ The entry timestamp is `start.UTC()` -- the time the request *began*, not when t
 
 **Fix:** Added `ListPaged(ctx, limit, offset)` to the `KeyManager` interface with implementations in both postgres (SQL `LIMIT/OFFSET`) and memory (sort by `CreatedAt` then slice) stores. The `GET /admin/keys` handler now parses `?limit=N&offset=N` query parameters with a default limit of 100 and a maximum of 1000. Invalid or missing values fall back to defaults.
 
-### 16. Circuit breaker `Allow()` in half-open state allows unbounded concurrent calls
+### 16. Circuit breaker `Allow()` in half-open state allows unbounded concurrent calls — ADDRESSED
 
 **File:** `internal/authz/plugin/circuitbreaker.go:77`
 
 In `StateHalfOpen`, every call is allowed through. The typical circuit breaker pattern only allows a single "probe" request in half-open. Here, if many concurrent requests arrive during half-open, they all go through -- which could overwhelm a recovering plugin.
+
+**Fix:** Added a `halfOpenAllowed` bool field. Only one probe request passes through at a time in half-open state. The flag is consumed by `Allow()` and re-enabled by `RecordSuccess()` (allowing the next sequential probe) until `successThreshold` is met and the circuit closes. A failure in half-open re-opens the circuit as before.
 
 ## Impact Summary
 

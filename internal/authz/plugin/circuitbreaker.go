@@ -44,6 +44,7 @@ type CircuitBreaker struct {
 	consecutiveFailures  int
 	consecutiveSuccesses int
 	lastFailure          time.Time
+	halfOpenAllowed      bool
 }
 
 // NewCircuitBreaker creates a circuit breaker for the given plugin.
@@ -71,11 +72,16 @@ func (cb *CircuitBreaker) Allow() bool {
 	case StateOpen:
 		if time.Since(cb.lastFailure) > cb.cooldown {
 			cb.transition(StateHalfOpen)
+			cb.halfOpenAllowed = false // this call is the probe
 			return true
 		}
 		return false
 	case StateHalfOpen:
-		return true
+		if cb.halfOpenAllowed {
+			cb.halfOpenAllowed = false
+			return true
+		}
+		return false
 	}
 	return false
 }
@@ -91,6 +97,8 @@ func (cb *CircuitBreaker) RecordSuccess() {
 		cb.consecutiveSuccesses++
 		if cb.consecutiveSuccesses >= cb.successThreshold {
 			cb.transition(StateClosed)
+		} else {
+			cb.halfOpenAllowed = true
 		}
 	}
 }
@@ -126,6 +134,7 @@ func (cb *CircuitBreaker) transition(to CBState) {
 	cb.state = to
 	cb.consecutiveFailures = 0
 	cb.consecutiveSuccesses = 0
+	cb.halfOpenAllowed = (to == StateHalfOpen)
 
 	metrics.AuthzCircuitBreakerState.WithLabelValues(cb.plugin).Set(float64(to))
 	metrics.AuthzCircuitBreakerTransitions.WithLabelValues(cb.plugin, from.String(), to.String()).Inc()
