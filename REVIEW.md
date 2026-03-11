@@ -1,16 +1,20 @@
 # PDAG Code Review: Iteration 2
 
-## 1. Config validation gaps
+## 1. Config validation gaps — ADDRESSED
 
 **File:** `internal/config/config.go`
 
 Listen addresses, MaxBodySize, HMAC secret length, circuit breaker thresholds, plugin timeouts, rate limit values, health check intervals, and DB DSN are not validated. Invalid values (zero, negative, nonsensical combinations) silently produce broken runtime behavior instead of failing fast at startup.
 
-## 2. Expired keys accumulate in the database
+**Fix:** Added validation in `validate()` for: listen addresses via `net.SplitHostPort`, `MaxBodySize > 0`, HMAC secrets >= 16 bytes, circuit breaker thresholds >= 0 (both defaults and per-plugin), `PluginDefaults.Timeout > 0`, rate limit `Rate > 0` and `Burst > 0` when enabled, health check `Timeout < Interval` for multi-backend configs, and non-empty DSN when driver is postgres. Port conflicts produce a warning via `slog.Warn`.
 
-**File:** `internal/authn/hmac/middleware.go`, `internal/store/store.go`
+## 2. Expired keys accumulate in the database — ADDRESSED
+
+**File:** `internal/store/store.go`, `internal/admin/server.go`
 
 Expired keys are correctly rejected at request time but remain in the database forever. No admin endpoint or mechanism exists to purge them. Over time this bloats the store and slows paginated queries.
+
+**Fix:** Added `DELETE /admin/keys/expired` endpoint that calls `DeleteExpired(ctx, time.Now())` on the store. Returns `{"deleted": N}`. Operators wire this to an external cron if they want periodic cleanup — no background magic. Added `DeleteExpired` to `KeyManager` interface with postgres and memory implementations, plus a partial index on `expires_at` (migration 002).
 
 ## 3. No `GET /admin/keys/{id}` endpoint
 

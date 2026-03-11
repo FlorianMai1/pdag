@@ -56,7 +56,7 @@ Request bodies are buffered into memory (up to `max_body_size`, default 1 MiB) b
 
 ### Header stripping on proxy
 
-All client-supplied headers are stripped from the outbound request to prevent header injection into pdAPI. Only `X-API-Key` (real upstream key), `Host`, `Content-Type`, and `Content-Length` are set on the proxied request.
+All client-supplied headers are stripped from the outbound request to prevent header injection into pdAPI. Only `X-API-Key` (real upstream key), `Host`, `Content-Type`, `Content-Length`, and `Accept` are set on the proxied request.
 
 ### Two separate log streams
 
@@ -109,6 +109,30 @@ Config always uses the `upstreams.backends` list (there is no legacy singular `u
 
 The `proxy.Backend` interface is defined in `internal/proxy/proxy.go`. Implementations live in subpackages: `internal/proxy/single` (single backend, always healthy) and `internal/proxy/balancer` (round-robin with health checks). `cmd/pdag/serve.go` selects the implementation based on the number of configured backends.
 
+### Fail fast on invalid config
+
+PDAG validates all configuration at startup and refuses to start if anything is invalid. This includes listen address format, `MaxBodySize > 0`, HMAC secret minimum length (16 bytes), circuit breaker thresholds, rate limit values when enabled, health check `timeout < interval` for multi-backend setups, and non-empty DSN when using postgres. Port conflicts between proxy/metrics/admin produce a warning. The principle: a bad config should be caught at deploy time, not as a mysterious runtime failure.
+
+### No background cleanup — operator-driven operations
+
+PDAG does not run background jobs for housekeeping (e.g., purging expired keys, rotating secrets). Instead, it exposes explicit admin API endpoints (`DELETE /admin/keys/expired`) that operators call on their own schedule — via cron, CI/CD, or manual invocation. This keeps PDAG's behavior fully predictable: it does exactly what it's told, when it's told, with no hidden timers or implicit state changes.
+
+### Constant-time admin token comparison
+
+The admin API authenticates via a static bearer token. To prevent timing attacks that could leak the token length, both the expected and candidate tokens are HMAC-SHA256'd (producing fixed-length 32-byte MACs) before `subtle.ConstantTimeCompare`. The expected token's MAC is precomputed at init time.
+
+### Lock-free hot path in plugin manager
+
+The plugin manager uses `atomic.Pointer[pluginMap]` with copy-on-write for the plugin instance map. The hot path (`Authorize`, `Healthy`, `HasPlugins`) performs a single atomic pointer load — no mutexes, no contention. Writers (`restartPlugin`, `Close`) serialize via a separate `sync.Mutex` and perform copy-on-write: load → copy → modify → atomic store.
+
+### Single StatusRecorder with Unwrap
+
+Only the metrics middleware wraps the `ResponseWriter` in a `StatusRecorder`. The audit middleware reads the status code via a shared pointer in context (`WithStatusCodePtr`/`GetStatusCodePtr`), avoiding double-wrapping. `StatusRecorder` implements `Unwrap() http.ResponseWriter` so Go 1.20+'s `http.ResponseController` can reach the underlying writer's `http.Flusher`/`http.Hijacker` interfaces for streaming support.
+
+### Circuit breaker half-open limits concurrency
+
+In half-open state, only one "probe" request passes through at a time. A `halfOpenAllowed` bool flag is consumed by `Allow()` and re-enabled by `RecordSuccess()`, allowing sequential probes until `successThreshold` is met. This prevents a flood of requests from overwhelming a recovering plugin.
+
 ### No panic recovery middleware
 
 Go's `net/http` server already recovers panics per-request. Plugins run out-of-process via go-plugin, so a plugin crash cannot bring down the proxy. Custom panic recovery adds complexity with no benefit.
@@ -120,6 +144,22 @@ RequestID → Metrics → AuditLog → Authn → RateLimit → BodyBuffer → Au
 ```
 
 Each middleware is a `func(http.Handler) http.Handler`. Body buffering runs **after** authn so unauthenticated requests never pay the copy cost. Rate limiting runs after authn so it can bucket by principal.
+
+## Admin API
+
+The admin API runs on a separate server (`:9091`) protected by a static bearer token with per-IP rate limiting (10 req/s, burst 50) and 64 KiB body limits.
+
+```
+POST   /admin/keys                → Create key (returns ID + secret)
+GET    /admin/keys?limit=N&offset=N → List keys (paginated, default 100, max 1000)
+DELETE /admin/keys/expired         → Purge all expired keys (returns {"deleted": N})
+DELETE /admin/keys/{id}            → Delete key
+PATCH  /admin/keys/{id}/enable     → Enable key
+PATCH  /admin/keys/{id}/disable    → Disable key
+PUT    /admin/keys/{id}/roles      → Update roles
+```
+
+All mutating endpoints log to the `api_keys_audit` table with action, timestamp, and changed values.
 
 ## Non-Goals
 
