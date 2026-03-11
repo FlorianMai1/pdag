@@ -70,13 +70,16 @@ func (l *Logger) Publish(e audit.Entry) error {
 	defer l.pubMu.RUnlock()
 
 	if l.closed {
+		metrics.AuditDroppedTotal.Inc()
 		metrics.AuditWriteErrorsTotal.Inc()
 		return fmt.Errorf("audit log closed, entry dropped")
 	}
+	metrics.AuditQueueDepth.Set(float64(len(l.ch)))
 	select {
 	case l.ch <- e:
 		return nil
 	default:
+		metrics.AuditDroppedTotal.Inc()
 		metrics.AuditWriteErrorsTotal.Inc()
 		return fmt.Errorf("audit log buffer full, entry dropped")
 	}

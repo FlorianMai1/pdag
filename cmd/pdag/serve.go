@@ -110,6 +110,7 @@ func openKeyStore(dsn string) (store.KeyStore, func(), error) {
 			return nil, func() {}, fmt.Errorf("open postgres store: %w", err)
 		}
 		slog.Info("connected to postgres key store")
+		metrics.NewDBPoolCollector(pg.DB())
 		return pg, func() { pg.Close() }, nil
 	}
 
@@ -178,6 +179,7 @@ func openPluginManager(cfg *config.Config) (*authzplugin.Manager, error) {
 		}
 		plugins[name] = authz.PluginConfig{
 			Path:             pc.Path,
+			SHA256:           pc.SHA256,
 			Timeout:          pc.Timeout,
 			FailureThreshold: pc.CircuitBreaker.FailureThreshold,
 			SuccessThreshold: pc.CircuitBreaker.SuccessThreshold,
@@ -267,6 +269,7 @@ func handleSIGHUP(reopenFn func() error, done <-chan struct{}) {
 		case <-done:
 			return
 		case <-sighup:
+			metrics.SighupTotal.Inc()
 			slog.Info("received SIGHUP, reopening audit log")
 			if err := reopenFn(); err != nil {
 				slog.Error("reopen audit log", "error", err)

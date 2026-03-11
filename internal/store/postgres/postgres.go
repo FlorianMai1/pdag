@@ -295,6 +295,11 @@ func (s *Store) AuditKeyEvent(ctx context.Context, keyID, action, changedBy stri
 	return nil
 }
 
+// DB returns the underlying *sql.DB for metrics collection.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }

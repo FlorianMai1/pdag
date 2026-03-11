@@ -93,6 +93,25 @@ var (
 		Help:      "Audit log write failures.",
 	})
 
+	AuditQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "pdag",
+		Name:      "audit_queue_depth",
+		Help:      "Current number of entries buffered in the audit log channel.",
+	})
+
+	AuditDroppedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pdag",
+		Name:      "audit_dropped_total",
+		Help:      "Audit log entries dropped due to full buffer or closed logger.",
+	})
+
+	// Operational metrics
+	SighupTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pdag",
+		Name:      "sighup_total",
+		Help:      "Number of SIGHUP signals received.",
+	})
+
 	// Upstream metrics
 	UpstreamBackendHealthy = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "pdag",
