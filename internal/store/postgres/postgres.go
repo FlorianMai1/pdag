@@ -166,6 +166,53 @@ func (s *Store) ListPaged(ctx context.Context, limit, offset int) ([]*store.KeyR
 	return result, rows.Err()
 }
 
+func (s *Store) ListFiltered(ctx context.Context, limit, offset int, principal, role string) ([]*store.KeyRecord, error) {
+	query := `SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+		 FROM api_keys WHERE 1=1`
+	args := []any{}
+	argN := 1
+
+	if principal != "" {
+		query += fmt.Sprintf(" AND principal = $%d", argN)
+		args = append(args, principal)
+		argN++
+	}
+	if role != "" {
+		query += fmt.Sprintf(" AND $%d = ANY(roles)", argN)
+		args = append(args, role)
+		argN++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at LIMIT $%d OFFSET $%d", argN, argN+1)
+	args = append(args, limit, offset)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list keys filtered: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*store.KeyRecord
+	for rows.Next() {
+		rec := &store.KeyRecord{}
+		var expiresAt sql.NullTime
+		var roles TextArray
+		if err := rows.Scan(
+			&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
+			&roles, &rec.Enabled, &expiresAt,
+			&rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan key: %w", err)
+		}
+		rec.Roles = []string(roles)
+		if expiresAt.Valid {
+			rec.ExpiresAt = &expiresAt.Time
+		}
+		result = append(result, rec)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE api_keys SET enabled = $1, updated_at = NOW() WHERE id = $2`,
@@ -201,6 +248,16 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		`DELETE FROM api_keys WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete key %q: %w", id, err)
+	}
+	return checkRowsAffected(res, id)
+}
+
+func (s *Store) SetExpiresAt(ctx context.Context, id string, expiresAt *time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET expires_at = $1, updated_at = NOW() WHERE id = $2`,
+		expiresAt, id)
+	if err != nil {
+		return fmt.Errorf("set expires_at %q: %w", id, err)
 	}
 	return checkRowsAffected(res, id)
 }

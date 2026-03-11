@@ -227,6 +227,73 @@ func TestDeleteExpired(t *testing.T) {
 	}
 }
 
+func TestListFiltered(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore()
+
+	// Create keys with different principals and roles.
+	for i, rec := range []*store.KeyRecord{
+		{ID: "k0", Principal: "alice", Roles: []string{"admin", "read_zones"}, CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{ID: "k1", Principal: "alice", Roles: []string{"read_zones"}, CreatedAt: time.Date(2025, 1, 1, 0, 0, 1, 0, time.UTC)},
+		{ID: "k2", Principal: "bob", Roles: []string{"admin"}, CreatedAt: time.Date(2025, 1, 1, 0, 0, 2, 0, time.UTC)},
+		{ID: "k3", Principal: "bob", Roles: []string{"read_zones"}, CreatedAt: time.Date(2025, 1, 1, 0, 0, 3, 0, time.UTC)},
+		{ID: "k4", Principal: "carol", Roles: []string{"admin", "read_zones"}, CreatedAt: time.Date(2025, 1, 1, 0, 0, 4, 0, time.UTC)},
+	} {
+		rec.Enabled = true
+		if err := s.Create(ctx, rec); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+
+	// Filter by principal.
+	got, err := s.ListFiltered(ctx, 100, 0, "alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("principal=alice: got %d, want 2", len(got))
+	}
+	if got[0].ID != "k0" || got[1].ID != "k1" {
+		t.Errorf("principal=alice: got [%s,%s], want [k0,k1]", got[0].ID, got[1].ID)
+	}
+
+	// Filter by role.
+	got, err = s.ListFiltered(ctx, 100, 0, "", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("role=admin: got %d, want 3", len(got))
+	}
+
+	// Filter by both.
+	got, err = s.ListFiltered(ctx, 100, 0, "bob", "read_zones")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "k3" {
+		t.Errorf("principal=bob&role=read_zones: got %v", got)
+	}
+
+	// No filters = all keys.
+	got, err = s.ListFiltered(ctx, 100, 0, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 5 {
+		t.Fatalf("no filter: got %d, want 5", len(got))
+	}
+
+	// Filter with pagination.
+	got, err = s.ListFiltered(ctx, 1, 1, "alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "k1" {
+		t.Errorf("alice limit=1 offset=1: got %v", got)
+	}
+}
+
 func TestStoreReturnsCopies(t *testing.T) {
 	ctx := context.Background()
 	s := NewStore()

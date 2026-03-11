@@ -240,6 +240,68 @@ func TestListKeysPagination(t *testing.T) {
 	}
 }
 
+func TestListKeysFiltering(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create keys with different principals and roles directly in store.
+	now := time.Now()
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_alice1", Principal: "alice", Roles: []string{"admin", "read_zones"},
+		Enabled: true, CreatedAt: now,
+	})
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_alice2", Principal: "alice", Roles: []string{"read_zones"},
+		Enabled: true, CreatedAt: now.Add(time.Second),
+	})
+	mgr.Create(nil, &store.KeyRecord{
+		ID: "k_bob1", Principal: "bob", Roles: []string{"admin"},
+		Enabled: true, CreatedAt: now.Add(2 * time.Second),
+	})
+
+	// Filter by principal.
+	req := httptest.NewRequest("GET", "/admin/keys?principal=alice", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var keys []struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 2 {
+		t.Fatalf("principal=alice: got %d keys, want 2", len(keys))
+	}
+
+	// Filter by role.
+	req = httptest.NewRequest("GET", "/admin/keys?role=admin", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 2 {
+		t.Fatalf("role=admin: got %d keys, want 2", len(keys))
+	}
+
+	// Filter by both.
+	req = httptest.NewRequest("GET", "/admin/keys?principal=alice&role=admin", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	json.Unmarshal(rec.Body.Bytes(), &keys)
+	if len(keys) != 1 {
+		t.Fatalf("principal=alice&role=admin: got %d keys, want 1", len(keys))
+	}
+	if keys[0].ID != "k_alice1" {
+		t.Errorf("expected k_alice1, got %s", keys[0].ID)
+	}
+}
+
 func TestPurgeExpiredKeys(t *testing.T) {
 	mgr := memory.NewStore()
 	h := admin.Handler(mgr, testKeygen, testToken)

@@ -106,6 +106,52 @@ func (m *Store) ListPaged(_ context.Context, limit, offset int) ([]*store.KeyRec
 	return result, nil
 }
 
+func (m *Store) ListFiltered(_ context.Context, limit, offset int, principal, role string) ([]*store.KeyRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Collect matching records sorted by CreatedAt.
+	all := make([]*store.KeyRecord, 0, len(m.keys))
+	for _, rec := range m.keys {
+		if principal != "" && rec.Principal != principal {
+			continue
+		}
+		if role != "" {
+			found := false
+			for _, r := range rec.Roles {
+				if r == role {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		all = append(all, rec)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].CreatedAt.Before(all[j].CreatedAt)
+	})
+
+	if offset >= len(all) {
+		return nil, nil
+	}
+	all = all[offset:]
+	if limit < len(all) {
+		all = all[:limit]
+	}
+
+	result := make([]*store.KeyRecord, len(all))
+	for i, rec := range all {
+		cp := *rec
+		cp.Roles = make([]string, len(rec.Roles))
+		copy(cp.Roles, rec.Roles)
+		result[i] = &cp
+	}
+	return result, nil
+}
+
 func (m *Store) SetEnabled(_ context.Context, id string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -151,6 +197,23 @@ func (m *Store) Delete(_ context.Context, id string) error {
 		return fmt.Errorf("key %q not found", id)
 	}
 	delete(m.keys, id)
+	return nil
+}
+
+func (m *Store) SetExpiresAt(_ context.Context, id string, expiresAt *time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.keys[id]
+	if !ok {
+		return fmt.Errorf("key %q not found", id)
+	}
+	if expiresAt != nil {
+		t := *expiresAt
+		rec.ExpiresAt = &t
+	} else {
+		rec.ExpiresAt = nil
+	}
+	rec.UpdatedAt = time.Now()
 	return nil
 }
 

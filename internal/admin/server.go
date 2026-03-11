@@ -38,12 +38,14 @@ func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /admin/keys", withAuth(adminToken, createKey(mgr, keygen)))
+	mux.HandleFunc("GET /admin/keys/{id}", withAuth(adminToken, getKey(mgr)))
 	mux.HandleFunc("GET /admin/keys", withAuth(adminToken, listKeys(mgr)))
 	mux.HandleFunc("DELETE /admin/keys/expired", withAuth(adminToken, purgeExpired(mgr)))
 	mux.HandleFunc("DELETE /admin/keys/{id}", withAuth(adminToken, deleteKey(mgr)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/disable", withAuth(adminToken, setEnabled(mgr, false)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
 	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr)))
+	mux.HandleFunc("PATCH /admin/keys/{id}/expiry", withAuth(adminToken, setExpiry(mgr)))
 
 	return mux
 }
@@ -98,6 +100,31 @@ func hmacHash(data, key []byte) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(data)
 	return mac.Sum(nil)
+}
+
+func getKey(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		rec, err := mgr.GetByID(r.Context(), id)
+		if err != nil {
+			slog.Error("get key", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if rec == nil {
+			http.Error(w, "key not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(keyResponse{
+			ID:        rec.ID,
+			Principal: rec.Principal,
+			Roles:     rec.Roles,
+			Enabled:   rec.Enabled,
+			ExpiresAt: rec.ExpiresAt,
+			CreatedAt: rec.CreatedAt,
+		})
+	}
 }
 
 func purgeExpired(mgr store.KeyManager) http.HandlerFunc {
@@ -236,7 +263,10 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 			}
 		}
 
-		keys, err := mgr.ListPaged(r.Context(), limit, offset)
+		principal := r.URL.Query().Get("principal")
+		role := r.URL.Query().Get("role")
+
+		keys, err := mgr.ListFiltered(r.Context(), limit, offset, principal, role)
 		if err != nil {
 			slog.Error("list keys", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -294,6 +324,44 @@ func setEnabled(mgr store.KeyManager, enabled bool) http.HandlerFunc {
 			"enabled": enabled,
 		}); err != nil {
 			slog.Error("audit key "+action, "error", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type setExpiryRequest struct {
+	ExpiresAt *string `json:"expires_at"` // RFC3339 or null to clear
+}
+
+func setExpiry(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		var req setExpiryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		var expiresAt *time.Time
+		if req.ExpiresAt != nil {
+			t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+			if err != nil {
+				http.Error(w, "invalid expires_at format (use RFC3339)", http.StatusBadRequest)
+				return
+			}
+			expiresAt = &t
+		}
+
+		if err := mgr.SetExpiresAt(r.Context(), id, expiresAt); err != nil {
+			slog.Error("set expiry", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), id, "update_expiry", "admin_api", nil, map[string]any{
+			"expires_at": expiresAt,
+		}); err != nil {
+			slog.Error("audit key update_expiry", "error", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
