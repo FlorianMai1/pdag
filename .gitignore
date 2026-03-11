@@ -1,4 +1,5 @@
 # Compiled binaries
+bin/
 pdag-test
 plugins/admin/admin
 plugins/read_zones/read_zones
