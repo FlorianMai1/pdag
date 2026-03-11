@@ -302,10 +302,12 @@ func (m *Manager) restartPlugin(name string, pc authz.PluginConfig) {
 
 	// All attempts exhausted — mark plugin as permanently failed to prevent
 	// infinite restart loops from callPlugin detecting the dead process.
+	m.writeMu.Lock()
 	snap := m.plugins.Load()
 	if inst, ok := snap.m[name]; ok {
 		inst.failed.Store(true)
 	}
+	m.writeMu.Unlock()
 	slog.Error("plugin restart exhausted all attempts, marked as permanently failed", "plugin", name)
 }
 
