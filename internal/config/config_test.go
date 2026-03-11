@@ -20,7 +20,7 @@ max_body_size: 2048
 audit_log: "/tmp/audit.jsonl"
 hmac_secrets:
   - id: "v1"
-    secret: "my-secret"
+    secret: "my-secret-that-is-long-enough"
 db:
   driver: "postgres"
   dsn: "postgres://localhost/test"
@@ -67,7 +67,10 @@ upstreams:
       api_key: "key"
 hmac_secrets:
   - id: "v1"
-    secret: "test-secret"
+    secret: "test-secret-long-enough"
+db:
+  driver: postgres
+  dsn: "postgres://localhost/test"
 `), 0644)
 
 	cfg, err := Load(cfgFile)
@@ -100,7 +103,9 @@ upstreams:
 listen: ":1111"
 hmac_secrets:
   - id: "v1"
-    secret: "test-secret"
+    secret: "test-secret-long-enough"
+db:
+  dsn: "postgres://localhost/test"
 `), 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +152,9 @@ upstreams:
     timeout: 1s
 hmac_secrets:
   - id: "v1"
-    secret: "test-secret"
+    secret: "test-secret-long-enough"
+db:
+  dsn: "postgres://localhost/test"
 `), 0644)
 
 	cfg, err := Load(cfgFile)
@@ -166,6 +173,123 @@ hmac_secrets:
 	}
 	if cfg.Upstreams.HealthCheck.Interval != 5*time.Second {
 		t.Errorf("health_check.interval = %v, want 5s", cfg.Upstreams.HealthCheck.Interval)
+	}
+}
+
+// validBaseConfig returns a minimal valid YAML config for tests that need
+// to test a single validation rule without tripping others.
+func validBaseConfig(extra string) string {
+	return `
+upstreams:
+  backends:
+    - url: "http://pdns:8081"
+      api_key: "key"
+hmac_secrets:
+  - id: "v1"
+    secret: "test-secret-long-enough"
+db:
+  dsn: "postgres://localhost/test"
+` + extra
+}
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "pdag.yaml")
+	os.WriteFile(cfgFile, []byte(content), 0644)
+	return cfgFile
+}
+
+func TestValidateInvalidListenAddress(t *testing.T) {
+	cfgFile := writeConfig(t, validBaseConfig(`listen: "not-a-valid-addr"`))
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for invalid listen address")
+	}
+}
+
+func TestValidateMaxBodySizeZero(t *testing.T) {
+	cfgFile := writeConfig(t, validBaseConfig(`max_body_size: 0`))
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for max_body_size=0")
+	}
+}
+
+func TestValidateHmacSecretTooShort(t *testing.T) {
+	cfg := `
+upstreams:
+  backends:
+    - url: "http://pdns:8081"
+      api_key: "key"
+hmac_secrets:
+  - id: "v1"
+    secret: "short"
+db:
+  dsn: "postgres://localhost/test"
+`
+	cfgFile := writeConfig(t, cfg)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for short HMAC secret")
+	}
+}
+
+func TestValidateRateLimitEnabled(t *testing.T) {
+	cfg := validBaseConfig(`
+rate_limit:
+  enabled: true
+  rate: 0
+  burst: 10
+`)
+	cfgFile := writeConfig(t, cfg)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for rate=0 when enabled")
+	}
+}
+
+func TestValidateHealthCheckTimeoutGEInterval(t *testing.T) {
+	cfg := `
+upstreams:
+  backends:
+    - url: "http://pdns-1:8081"
+      api_key: "key-1"
+    - url: "http://pdns-2:8081"
+      api_key: "key-2"
+  health_check:
+    interval: 1s
+    timeout: 2s
+hmac_secrets:
+  - id: "v1"
+    secret: "test-secret-long-enough"
+db:
+  dsn: "postgres://localhost/test"
+`
+	cfgFile := writeConfig(t, cfg)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for timeout >= interval")
+	}
+}
+
+func TestValidatePostgresMissingDSN(t *testing.T) {
+	cfg := `
+upstreams:
+  backends:
+    - url: "http://pdns:8081"
+      api_key: "key"
+hmac_secrets:
+  - id: "v1"
+    secret: "test-secret-long-enough"
+db:
+  driver: postgres
+  dsn: ""
+`
+	cfgFile := writeConfig(t, cfg)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for postgres with empty DSN")
 	}
 }
 

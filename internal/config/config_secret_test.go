@@ -18,7 +18,7 @@ func TestResolveSecretFiles(t *testing.T) {
 	os.WriteFile(adminFile, []byte("admin-from-file"), 0600)
 
 	hmacFile := filepath.Join(dir, "hmac_secret")
-	os.WriteFile(hmacFile, []byte("hmac-from-file\n"), 0600)
+	os.WriteFile(hmacFile, []byte("hmac-from-file-long-enough\n"), 0600)
 
 	cfgFile := filepath.Join(dir, "pdag.yaml")
 	os.WriteFile(cfgFile, []byte(`
@@ -30,6 +30,8 @@ admin_token_file: "`+adminFile+`"
 hmac_secrets:
   - id: "v1"
     secret_file: "`+hmacFile+`"
+db:
+  dsn: "postgres://localhost/test"
 `), 0644)
 
 	cfg, err := Load(cfgFile)
@@ -43,8 +45,8 @@ hmac_secrets:
 	if cfg.AdminToken != "admin-from-file" {
 		t.Errorf("admin_token = %q, want %q", cfg.AdminToken, "admin-from-file")
 	}
-	if cfg.HmacSecrets[0].Secret != "hmac-from-file" {
-		t.Errorf("hmac_secrets[0].secret = %q, want %q", cfg.HmacSecrets[0].Secret, "hmac-from-file")
+	if cfg.HmacSecrets[0].Secret != "hmac-from-file-long-enough" {
+		t.Errorf("hmac_secrets[0].secret = %q, want %q", cfg.HmacSecrets[0].Secret, "hmac-from-file-long-enough")
 	}
 }
 
@@ -64,7 +66,9 @@ upstreams:
       api_key_file: "`+apiKeyFile+`"
 hmac_secrets:
   - id: "v1"
-    secret: "inline-hmac"
+    secret: "inline-hmac-long-enough"
+db:
+  dsn: "postgres://localhost/test"
 `), 0644)
 
 	cfg, err := Load(cfgFile)

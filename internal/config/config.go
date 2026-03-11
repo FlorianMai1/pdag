@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -183,6 +185,7 @@ func (c *Config) resolveSecretFiles() error {
 }
 
 func (c *Config) validate() error {
+	// Upstream backends.
 	if len(c.Upstreams.Backends) == 0 {
 		return fmt.Errorf("upstreams.backends is required")
 	}
@@ -195,6 +198,35 @@ func (c *Config) validate() error {
 		}
 	}
 
+	// Listen addresses.
+	for _, addr := range []struct {
+		name, value string
+	}{
+		{"listen", c.Listen},
+		{"metrics.listen", c.Metrics.Listen},
+		{"admin.listen", c.Admin.Listen},
+	} {
+		if _, _, err := net.SplitHostPort(addr.value); err != nil {
+			return fmt.Errorf("%s: invalid address %q: %w", addr.name, addr.value, err)
+		}
+	}
+
+	// Warn on port conflicts (non-fatal).
+	addrs := map[string]string{
+		c.Listen:         "listen",
+		c.Metrics.Listen: "metrics.listen",
+		c.Admin.Listen:   "admin.listen",
+	}
+	if len(addrs) < 3 {
+		slog.Warn("two or more servers share the same listen address — this will cause a bind failure at runtime")
+	}
+
+	// MaxBodySize.
+	if c.MaxBodySize <= 0 {
+		return fmt.Errorf("max_body_size must be > 0, got %d", c.MaxBodySize)
+	}
+
+	// Plugins.
 	for name, pc := range c.Plugins {
 		info, err := os.Stat(pc.Path)
 		if err != nil {
@@ -206,7 +238,23 @@ func (c *Config) validate() error {
 		if info.Mode()&0111 == 0 {
 			return fmt.Errorf("plugin %q: path %q is not executable", name, pc.Path)
 		}
+		if err := validateCircuitBreaker(pc.CircuitBreaker, fmt.Sprintf("plugins.%s", name)); err != nil {
+			return err
+		}
+		if pc.Timeout < 0 {
+			return fmt.Errorf("plugins.%s.timeout must be >= 0, got %v", name, pc.Timeout)
+		}
 	}
+
+	// Plugin defaults.
+	if c.PluginDefaults.Timeout <= 0 {
+		return fmt.Errorf("plugin_defaults.timeout must be > 0, got %v", c.PluginDefaults.Timeout)
+	}
+	if err := validateCircuitBreaker(c.PluginDefaults.CircuitBreaker, "plugin_defaults"); err != nil {
+		return err
+	}
+
+	// HMAC secrets.
 	if len(c.HmacSecrets) == 0 {
 		return fmt.Errorf("hmac_secrets is required: at least one HMAC secret must be configured")
 	}
@@ -214,6 +262,53 @@ func (c *Config) validate() error {
 		if s.ID == "" || s.Secret == "" {
 			return fmt.Errorf("hmac_secrets[%d]: id and secret are required", i)
 		}
+		if len(s.Secret) < 16 {
+			return fmt.Errorf("hmac_secrets[%d]: secret must be at least 16 bytes, got %d", i, len(s.Secret))
+		}
+	}
+
+	// Rate limit.
+	if c.RateLimit.Enabled {
+		if c.RateLimit.Rate <= 0 {
+			return fmt.Errorf("rate_limit.rate must be > 0 when enabled, got %v", c.RateLimit.Rate)
+		}
+		if c.RateLimit.Burst <= 0 {
+			return fmt.Errorf("rate_limit.burst must be > 0 when enabled, got %d", c.RateLimit.Burst)
+		}
+	}
+
+	// Health check (only relevant with multiple backends).
+	if len(c.Upstreams.Backends) > 1 {
+		hc := c.Upstreams.HealthCheck
+		if hc.Interval <= 0 {
+			return fmt.Errorf("upstreams.health_check.interval must be > 0, got %v", hc.Interval)
+		}
+		if hc.Timeout <= 0 {
+			return fmt.Errorf("upstreams.health_check.timeout must be > 0, got %v", hc.Timeout)
+		}
+		if hc.Timeout >= hc.Interval {
+			return fmt.Errorf("upstreams.health_check.timeout (%v) must be less than interval (%v)", hc.Timeout, hc.Interval)
+		}
+	}
+
+	// Database.
+	if c.DB.Driver == "postgres" && c.DB.DSN == "" {
+		return fmt.Errorf("db.dsn is required when db.driver is postgres")
+	}
+
+	return nil
+}
+
+func validateCircuitBreaker(cb CircuitBreaker, prefix string) error {
+	// Zero values mean "use defaults", so only reject explicitly negative/invalid values.
+	if cb.FailureThreshold < 0 {
+		return fmt.Errorf("%s.circuit_breaker.failure_threshold must be >= 0, got %d", prefix, cb.FailureThreshold)
+	}
+	if cb.SuccessThreshold < 0 {
+		return fmt.Errorf("%s.circuit_breaker.success_threshold must be >= 0, got %d", prefix, cb.SuccessThreshold)
+	}
+	if cb.Cooldown < 0 {
+		return fmt.Errorf("%s.circuit_breaker.cooldown must be >= 0, got %v", prefix, cb.Cooldown)
 	}
 	return nil
 }
