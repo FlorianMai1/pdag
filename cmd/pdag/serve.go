@@ -311,9 +311,13 @@ func listenAndServe(proxyAddr, metricsAddr, adminAddr string, shutdownWait time.
 		defer cancel()
 
 		if adminSrv != nil {
-			adminSrv.Shutdown(shutdownCtx)
+			if err := adminSrv.Shutdown(shutdownCtx); err != nil {
+				slog.Error("admin server shutdown", "error", err)
+			}
 		}
-		metricsSrv.Shutdown(shutdownCtx)
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("metrics server shutdown", "error", err)
+		}
 		if err := proxySrv.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
