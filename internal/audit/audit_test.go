@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mai/pdag/internal/middleware"
 )
@@ -75,5 +76,47 @@ func TestAuditMiddleware(t *testing.T) {
 	}
 	if got.RequestID == "" {
 		t.Error("request_id is empty")
+	}
+}
+
+func TestAuditTimestampIsCompletionTime(t *testing.T) {
+	pub := &mockPublisher{}
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate a slow handler so completion time differs from start.
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	withStatusCode := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rec := middleware.NewStatusRecorder(w)
+			ctx := middleware.WithStatusCodePtr(r.Context(), &rec.StatusCode)
+			next.ServeHTTP(rec, r.WithContext(ctx))
+		})
+	}
+
+	handler := withStatusCode(Middleware(pub)(inner))
+
+	before := time.Now()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	after := time.Now()
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
+	if len(pub.entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(pub.entries))
+	}
+	ts := pub.entries[0].Timestamp
+
+	// Timestamp should be after the 50ms sleep, i.e. close to completion time.
+	if ts.Before(before.Add(50 * time.Millisecond)) {
+		t.Errorf("timestamp %v is before expected completion window (started %v + 50ms)", ts, before)
+	}
+	if ts.After(after) {
+		t.Errorf("timestamp %v is after test completion %v", ts, after)
 	}
 }
