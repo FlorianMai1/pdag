@@ -45,7 +45,7 @@ func (p *AuthorizerPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server)
 	return nil
 }
 
-func (p *AuthorizerPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+func (p *AuthorizerPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
 	return &GRPCClient{client: pb.NewAuthorizerClient(c)}, nil
 }
 

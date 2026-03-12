@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,7 +111,7 @@ func BenchmarkProxyGETZoneManyRRsets(b *testing.B) {
 func BenchmarkProxyGETManyZones(b *testing.B) {
 	const zoneCount = 200
 
-	for i := 0; i < zoneCount; i++ {
+	for i := range zoneCount {
 		zone := fmt.Sprintf("bench-z%d.example.com.", i)
 		benchSeedZone(b, zone)
 	}
@@ -201,10 +201,7 @@ func benchSeedRRsets(tb testing.TB, zone string, n int) {
 	// Build rrsets in batches to avoid overly large payloads.
 	const batchSize = 50
 	for start := 0; start < n; start += batchSize {
-		end := start + batchSize
-		if end > n {
-			end = n
-		}
+		end := min(start+batchSize, n)
 
 		var rrsets []string
 		for i := start; i < end; i++ {
@@ -261,7 +258,7 @@ func TestLoadProfile(t *testing.T) {
 
 	t.Run("ManyZones", func(t *testing.T) {
 		const zoneCount = 200
-		for i := 0; i < zoneCount; i++ {
+		for i := range zoneCount {
 			benchSeedZone(t, fmt.Sprintf("load-z%d.example.com.", i))
 		}
 
@@ -322,9 +319,7 @@ func runLoadProfile(t *testing.T, url, apiKey string, opts loadProfileOpts) {
 	var wg sync.WaitGroup
 
 	for i := 0; i < opts.concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			var local []time.Duration
 			for time.Now().Before(deadline) {
 				var req *http.Request
@@ -356,12 +351,12 @@ func runLoadProfile(t *testing.T, url, apiKey string, opts loadProfileOpts) {
 			mu.Lock()
 			latencies = append(latencies, local...)
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
 
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	slices.Sort(latencies)
 
 	n := len(latencies)
 	if n == 0 {

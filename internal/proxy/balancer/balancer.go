@@ -96,7 +96,7 @@ func (lb *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n := uint64(len(lb.backends))
 	start := lb.counter.Add(1) - 1
 
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		idx := (start + i) % n
 		if lb.backends[idx].healthy.Load() {
 			lb.backends[idx].rp.ServeHTTP(w, r)

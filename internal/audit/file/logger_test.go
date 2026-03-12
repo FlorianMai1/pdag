@@ -130,7 +130,7 @@ func TestLoggerBufferFull(t *testing.T) {
 
 	// Flood the channel.
 	var dropped int
-	for i := 0; i < defaultBufferSize+100; i++ {
+	for range defaultBufferSize + 100 {
 		if err := l.Publish(audit.Entry{RequestID: "flood"}); err != nil {
 			dropped++
 		}
@@ -161,11 +161,11 @@ func TestLoggerConcurrentWrites(t *testing.T) {
 	const entriesPerWriter = 100
 
 	var wg sync.WaitGroup
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < entriesPerWriter; j++ {
+			for range entriesPerWriter {
 				l.Publish(audit.Entry{
 					RequestID: "concurrent",
 					Method:    "GET",
@@ -206,7 +206,7 @@ func TestLoggerCloseFlushes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		l.Publish(audit.Entry{RequestID: "flush-test"})
 	}
 

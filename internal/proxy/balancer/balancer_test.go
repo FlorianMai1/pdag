@@ -17,7 +17,7 @@ func testBackends(t *testing.T, n int) ([]*httptest.Server, []Backend, []*atomic
 	backends := make([]Backend, n)
 	counts := make([]*atomic.Int64, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		counts[i] = &atomic.Int64{}
 		c := counts[i]
 		servers[i] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func TestRoundRobin(t *testing.T) {
 	lb := newTestBalancer(t, backends)
 
 	const total = 90
-	for i := 0; i < total; i++ {
+	for i := range total {
 		req := httptest.NewRequest("GET", "/zones", nil)
 		rec := httptest.NewRecorder()
 		lb.ServeHTTP(rec, req)
@@ -85,7 +85,7 @@ func TestUnhealthyBackendSkipped(t *testing.T) {
 	lb.backends[1].healthy.Store(false)
 
 	const total = 20
-	for i := 0; i < total; i++ {
+	for i := range total {
 		req := httptest.NewRequest("GET", "/zones", nil)
 		rec := httptest.NewRecorder()
 		lb.ServeHTTP(rec, req)
@@ -208,16 +208,14 @@ func TestConcurrentRequests(t *testing.T) {
 	const perGoroutine = 30
 	var wg sync.WaitGroup
 
-	for g := 0; g < goroutines; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < perGoroutine; i++ {
+	for range goroutines {
+		wg.Go(func() {
+			for range perGoroutine {
 				req := httptest.NewRequest("GET", "/zones", nil)
 				rec := httptest.NewRecorder()
 				lb.ServeHTTP(rec, req)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

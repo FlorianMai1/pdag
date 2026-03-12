@@ -9,7 +9,7 @@ func TestAllowBasic(t *testing.T) {
 	l := New(Config{Rate: 10, Burst: 5})
 
 	// First 5 requests should be allowed (burst).
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !l.Allow("alice") {
 			t.Errorf("request %d should be allowed within burst", i+1)
 		}
@@ -25,7 +25,7 @@ func TestAllowRefill(t *testing.T) {
 	l := New(Config{Rate: 100, Burst: 5})
 
 	// Exhaust burst.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		l.Allow("bob")
 	}
 
@@ -62,7 +62,7 @@ func TestAllowBurstCap(t *testing.T) {
 
 	// Even with high rate, burst caps at 3.
 	// Exhaust burst first.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.Allow("cap")
 	}
 
@@ -71,7 +71,7 @@ func TestAllowBurstCap(t *testing.T) {
 
 	// Should have refilled to burst (3), not more.
 	allowed := 0
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if l.Allow("cap") {
 			allowed++
 		}

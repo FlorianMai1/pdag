@@ -37,7 +37,7 @@ func TestGenerateSecret(t *testing.T) {
 
 func TestGenerateUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		s, _ := keygen.GenerateSecret()
 		if seen[s] {
 			t.Fatalf("duplicate secret generated: %s", s)

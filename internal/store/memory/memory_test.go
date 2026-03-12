@@ -111,7 +111,7 @@ func TestListPaged(t *testing.T) {
 	s := NewStore()
 
 	// Create 5 keys with staggered CreatedAt for deterministic order.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		rec := &store.KeyRecord{
 			ID:        fmt.Sprintf("k%d", i),
 			Principal: fmt.Sprintf("user%d", i),

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"sync"
@@ -253,9 +254,7 @@ func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInsta
 func (m *Manager) swapPlugin(name string, newInst *pluginInstance) *pluginInstance {
 	current := m.plugins.Load()
 	newMap := make(map[string]*pluginInstance, len(current.m))
-	for k, v := range current.m {
-		newMap[k] = v
-	}
+	maps.Copy(newMap, current.m)
 	old := newMap[name]
 	newMap[name] = newInst
 	m.plugins.Store(&pluginMap{m: newMap})

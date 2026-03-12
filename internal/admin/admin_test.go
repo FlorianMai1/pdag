@@ -188,7 +188,7 @@ func TestListKeysPagination(t *testing.T) {
 	h := admin.Handler(mgr, testKeygen, testToken)
 
 	// Create 5 keys.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		body := fmt.Sprintf(`{"principal":"user%d","roles":["read"]}`, i)
 		req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer test-token")
@@ -399,7 +399,7 @@ func TestRateLimitOnAdmin(t *testing.T) {
 
 	// Burst is 50 — send 55 requests, the last should be 429.
 	var lastCode int
-	for i := 0; i < 55; i++ {
+	for range 55 {
 		req := httptest.NewRequest("GET", "/admin/keys", nil)
 		req.Header.Set("Authorization", "Bearer test-token")
 		req.RemoteAddr = "10.0.0.1:12345"
@@ -417,7 +417,7 @@ func TestRateLimitPerIP(t *testing.T) {
 	h := newFullHandler()
 
 	// Exhaust burst for IP A.
-	for i := 0; i < 55; i++ {
+	for range 55 {
 		req := httptest.NewRequest("GET", "/admin/keys", nil)
 		req.Header.Set("Authorization", "Bearer test-token")
 		req.RemoteAddr = "10.0.0.2:12345"

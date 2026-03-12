@@ -295,7 +295,7 @@ func createTestKey(t *testing.T, principal string, roles []string) (keyID, secre
 	t.Helper()
 	resp := adminClient(t).POST("/admin/keys").
 		WithHeader("Authorization", "Bearer e2e-admin-token").
-		WithJSON(map[string]interface{}{
+		WithJSON(map[string]any{
 			"principal": principal,
 			"roles":     roles,
 		}).

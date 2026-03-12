@@ -1,6 +1,6 @@
 module github.com/mai/pdag
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/docker/go-connections v0.6.0

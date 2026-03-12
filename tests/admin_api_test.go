@@ -24,7 +24,7 @@ func TestAdminAPICreateListDeleteKey(t *testing.T) {
 	// Create.
 	resp := adminClient(t).POST("/admin/keys").
 		WithHeader("Authorization", "Bearer e2e-admin-token").
-		WithJSON(map[string]interface{}{
+		WithJSON(map[string]any{
 			"principal": "lifecycle-test",
 			"roles":     []string{"read_zones"},
 		}).
@@ -71,7 +71,7 @@ func TestAdminAPIUpdateRoles(t *testing.T) {
 	adminClient(t).PUT("/admin/keys/{id}/roles").
 		WithPath("id", keyID).
 		WithHeader("Authorization", "Bearer e2e-admin-token").
-		WithJSON(map[string]interface{}{
+		WithJSON(map[string]any{
 			"roles": []string{"admin"},
 		}).
 		Expect().

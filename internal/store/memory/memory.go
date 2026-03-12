@@ -5,6 +5,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -117,13 +118,7 @@ func (m *Store) ListFiltered(_ context.Context, limit, offset int, principal, ro
 			continue
 		}
 		if role != "" {
-			found := false
-			for _, r := range rec.Roles {
-				if r == role {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(rec.Roles, role)
 			if !found {
 				continue
 			}

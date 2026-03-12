@@ -42,7 +42,7 @@ func TestRequestIDUniqueness(t *testing.T) {
 	})
 
 	handler := RequestID(inner)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}

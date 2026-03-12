@@ -69,7 +69,7 @@ func TestRateLimiting(t *testing.T) {
 
 	// Send burst+1 requests rapidly. First 3 should succeed, 4th should be 429.
 	t.Run("burst_then_429", func(t *testing.T) {
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			req, _ := http.NewRequest("GET", url, nil)
 			req.Header.Set("X-API-Key", apiKey)
 			resp, err := client.Do(req)
@@ -158,7 +158,7 @@ func rlCreateKey(t *testing.T, adminPort, principal string, roles []string) (key
 	return result.ID, result.Secret
 }
 
-func mustJSON(v interface{}) string {
+func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
