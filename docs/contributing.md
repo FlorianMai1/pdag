@@ -21,9 +21,6 @@ Wiring happens in `cmd/pdag/serve.go`.
 ## Pre-Commit tooling
 #### Tags: `pre-commit` `commit` `contributing`
 
-Before every commit run the following commands:
-- `go fix`
-- `go vet`
-- `gofmt`
+Run `make check` before every commit. It runs fix, fmt, vet, lint, and tests in sequence.
 
 Before committing at least all unit tests should pass.
