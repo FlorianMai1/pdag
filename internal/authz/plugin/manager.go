@@ -16,6 +16,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-plugin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/mai/pdag/internal/authz"
 	"github.com/mai/pdag/internal/metrics"
@@ -152,6 +156,18 @@ func startPlugin(name string, pc authz.PluginConfig) (*pluginInstance, error) {
 // Returns the first ALLOW result, or DENY if all plugins deny.
 // Uses fan-out with early cancellation on first ALLOW.
 func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpRequest) (decision string, pluginName string, reason string) {
+	tracer := otel.Tracer("pdag.authz")
+	ctx, span := tracer.Start(ctx, "authz",
+		oteltrace.WithAttributes(attribute.Int("authz.role_count", len(roles))),
+	)
+	defer func() {
+		span.SetAttributes(
+			attribute.String("authz.decision", decision),
+			attribute.String("authz.plugin", pluginName),
+		)
+		span.End()
+	}()
+
 	snap := m.plugins.Load()
 
 	if len(roles) == 0 {
@@ -178,7 +194,16 @@ func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpReq
 		}
 
 		go func(role string, inst *pluginInstance) {
-			d, r := m.callPlugin(ctx, role, inst, req)
+			pluginCtx, pluginSpan := tracer.Start(ctx, "authz.plugin."+role)
+			d, r := m.callPlugin(pluginCtx, role, inst, req)
+			pluginSpan.SetAttributes(
+				attribute.String("authz.decision", d),
+				attribute.String("authz.reason", r),
+			)
+			if d != "allow" {
+				pluginSpan.SetStatus(codes.Error, r)
+			}
+			pluginSpan.End()
 			resultCh <- result{d, role, r}
 		}(role, inst)
 	}

@@ -73,6 +73,13 @@ type RateLimit struct {
 	Burst   int     `mapstructure:"burst"` // maximum burst size per principal
 }
 
+type Tracing struct {
+	Enabled    bool    `mapstructure:"enabled"`
+	Endpoint   string  `mapstructure:"endpoint"`    // OTLP gRPC endpoint, e.g. "localhost:4317"
+	Insecure   bool    `mapstructure:"insecure"`    // use insecure gRPC connection
+	SampleRate float64 `mapstructure:"sample_rate"` // 0.0 to 1.0
+}
+
 type Config struct {
 	Listen         string        `mapstructure:"listen"`
 	MaxBodySize    int64         `mapstructure:"max_body_size"`
@@ -87,6 +94,8 @@ type Config struct {
 	Admin       Admin        `mapstructure:"admin"`
 	HmacSecrets []HmacSecret `mapstructure:"hmac_secrets"`
 	RateLimit   RateLimit    `mapstructure:"rate_limit"`
+
+	Tracing Tracing `mapstructure:"tracing"`
 
 	PluginDefaults PluginDefaults          `mapstructure:"plugin_defaults"`
 	Plugins        map[string]PluginConfig `mapstructure:"plugins"`
@@ -108,6 +117,11 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("plugin_defaults.circuit_breaker.failure_threshold", 5)
 	v.SetDefault("plugin_defaults.circuit_breaker.success_threshold", 2)
 	v.SetDefault("plugin_defaults.circuit_breaker.cooldown", 30*time.Second)
+
+	v.SetDefault("tracing.enabled", false)
+	v.SetDefault("tracing.endpoint", "localhost:4317")
+	v.SetDefault("tracing.insecure", false)
+	v.SetDefault("tracing.sample_rate", 1.0)
 
 	v.SetDefault("upstreams.health_check.interval", 10*time.Second)
 	v.SetDefault("upstreams.health_check.timeout", 2*time.Second)
@@ -300,6 +314,16 @@ func (c *Config) validate() error {
 		}
 		if hc.Timeout >= hc.Interval {
 			return fmt.Errorf("upstreams.health_check.timeout (%v) must be less than interval (%v)", hc.Timeout, hc.Interval)
+		}
+	}
+
+	// Tracing.
+	if c.Tracing.Enabled {
+		if c.Tracing.Endpoint == "" {
+			return fmt.Errorf("tracing.endpoint is required when tracing is enabled")
+		}
+		if c.Tracing.SampleRate < 0 || c.Tracing.SampleRate > 1 {
+			return fmt.Errorf("tracing.sample_rate must be between 0.0 and 1.0, got %v", c.Tracing.SampleRate)
 		}
 	}
 

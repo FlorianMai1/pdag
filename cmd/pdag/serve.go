@@ -31,6 +31,7 @@ import (
 	"github.com/mai/pdag/internal/store"
 	"github.com/mai/pdag/internal/store/memory"
 	"github.com/mai/pdag/internal/store/postgres"
+	"github.com/mai/pdag/internal/tracing"
 )
 
 func runServe() error {
@@ -44,6 +45,25 @@ func runServe() error {
 	}
 
 	slog.Info("starting pdag", "listen", cfg.Listen, "backends", len(cfg.Upstreams.Backends), "metrics", cfg.Metrics.Listen)
+
+	if cfg.Tracing.Enabled {
+		shutdownTracer, tracerErr := tracing.Init(context.Background(), tracing.Config{
+			Endpoint:   cfg.Tracing.Endpoint,
+			Insecure:   cfg.Tracing.Insecure,
+			SampleRate: cfg.Tracing.SampleRate,
+		})
+		if tracerErr != nil {
+			return fmt.Errorf("init tracing: %w", tracerErr)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if shutdownErr := shutdownTracer(shutdownCtx); shutdownErr != nil {
+				slog.Error("shutdown tracer", "error", shutdownErr)
+			}
+		}()
+		slog.Info("tracing enabled", "endpoint", cfg.Tracing.Endpoint, "sample_rate", cfg.Tracing.SampleRate)
+	}
 
 	keyStore, closeStore, err := openKeyStore(cfg.DB.DSN)
 	if err != nil {
@@ -199,6 +219,7 @@ func newProxyServer(listenAddr string, maxBodySize int64, rl ratelimit.RateLimit
 	handler := middleware.Chain(
 		middleware.RequestID,
 		metrics.Middleware,
+		tracing.Middleware,
 		audit.Middleware(auditPub),
 		hmac.Middleware(keyStore, authnService),
 		ratelimit.Middleware(rl),

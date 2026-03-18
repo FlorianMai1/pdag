@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -22,6 +22,6 @@ COPY --from=build /plugins /opt/pdag/plugins
 COPY migrations /opt/pdag/migrations
 
 WORKDIR /opt/pdag
-EXPOSE 8080 9090
+EXPOSE 8080 9090 9091
 ENTRYPOINT ["pdag"]
 CMD ["serve"]

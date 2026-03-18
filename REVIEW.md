@@ -72,13 +72,17 @@ Once created, a key's `expires_at` cannot be changed. Extending or shortening a 
 
 **Fix:** Added `PATCH /admin/keys/{id}/expiry` endpoint accepting `{"expires_at": "RFC3339"}` or `{"expires_at": null}` to clear. Added `SetExpiresAt` to `KeyManager` interface with postgres and memory implementations.
 
-## 10. No OpenTelemetry / distributed tracing
+## 10. No OpenTelemetry / distributed tracing — ADDRESSED
 
-The gateway supports Prometheus metrics but has no tracing. Debugging slow plugin fan-out or upstream latency requires correlating logs manually across request IDs.
+~~The gateway supports Prometheus metrics but has no tracing. Debugging slow plugin fan-out or upstream latency requires correlating logs manually across request IDs.~~
 
-## 11. No Makefile or CI pipeline
+**Fix:** Added OpenTelemetry distributed tracing via OTLP gRPC exporter. Trace spans cover the full request lifecycle: root span (tracing middleware), authentication (HMAC middleware), and authorization fan-out (per-plugin child spans). Configurable via `tracing` section in config: endpoint, insecure mode, sample rate. When disabled (default), all spans are no-ops with zero overhead. W3C `traceparent` propagation is supported for end-to-end trace correlation.
 
-There is no build automation, linting config (`.golangci.yml`), or CI workflow (`.github/workflows/`). Tests and builds are run manually.
+## 11. No Makefile or CI pipeline — PARTIALLY ADDRESSED
+
+~~There is no build automation, linting config (`.golangci.yml`), or CI workflow (`.github/workflows/`). Tests and builds are run manually.~~
+
+**Fix:** Added `Makefile` with `make check` (fix, fmt, vet, lint, test), per-plugin build targets, integration test target, and proto regeneration. Added `.golangci.yml` with errorlint, bodyclose, sqlclosecheck, and other linters. CI workflow (`.github/workflows/`) is still missing.
 
 ## 12. No Kubernetes manifests or Helm chart
 
