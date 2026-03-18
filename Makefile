@@ -14,7 +14,7 @@ PLUGIN_BINS := $(addprefix $(PLUGIN_DIR)/,$(PLUGINS))
 
 # ── Primary targets ──────────────────────────────────────────────
 
-.PHONY: all build plugins test lint clean help
+.PHONY: all build plugins test lint fmt vet fix proto check clean help
 
 all: build plugins
 
@@ -27,6 +27,22 @@ test:
 
 lint:
 	golangci-lint run ./...
+
+fmt:
+	gofmt -w .
+
+vet:
+	$(GO) vet ./...
+
+fix:
+	$(GO) fix ./...
+
+proto:
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		proto/authz/authz.proto
+
+check: fix fmt vet lint test
 
 clean:
 	rm -rf $(BIN_DIR)
@@ -63,4 +79,9 @@ help:
 	@echo "  test             Run unit tests with -race"
 	@echo "  test-integration Run integration tests (needs Docker)"
 	@echo "  lint             Run golangci-lint"
+	@echo "  fmt              Format code with gofmt"
+	@echo "  vet              Run go vet"
+	@echo "  fix              Run go fix"
+	@echo "  proto            Regenerate protobuf Go code"
+	@echo "  check            Run fix + fmt + vet + lint + test"
 	@echo "  clean            Remove bin/"
