@@ -10,6 +10,17 @@ For contributing guidelines see [`docs/contributing.md`](docs/contributing.md).
 
 The PowerDNS API authenticates via a single static `X-API-Key` header. There is no concept of multiple users, roles, permissions, or audit trails. PDAG solves this by intercepting requests, authenticating callers with their own credentials, authorizing against plugin-based policies, logging every action, and forwarding permitted requests upstream with the real static API key.
 
+## Rules
+
+- `slog` only. No `fmt.Println` or `log.Println`.
+- Errors: wrap with `%w`, handle explicitly, no panics.
+- Interfaces in parent package, implementations in subpackages. Parent never imports children.
+- Implementations hold minimal state — never depend on root config structs.
+- Wiring happens in `cmd/pdag/serve.go`.
+- New component = interface in parent first, then subpackage impl.
+- Prefer stdlib. Only add dependencies when clearly necessary.
+- Run `make check` before committing.
+
 ## Non-Goals
 
 - No session management, tokens, OAuth, or JWT. Just API keys.
