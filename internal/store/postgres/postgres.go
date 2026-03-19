@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -64,6 +65,13 @@ func runMigrations(db *sql.DB, path string) error {
 	}
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
+	}
+	srcErr, dbErr := m.Close()
+	if srcErr != nil {
+		slog.Warn("close migration source", "error", srcErr)
+	}
+	if dbErr != nil {
+		slog.Warn("close migration database", "error", dbErr)
 	}
 	return nil
 }
@@ -311,7 +319,7 @@ func checkRowsAffected(res sql.Result, id string) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	return nil
 }

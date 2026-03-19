@@ -2,8 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrKeyNotFound is returned when a key mutation targets a non-existent key ID.
+var ErrKeyNotFound = errors.New("key not found")
 
 type KeyRecord struct {
 	ID        string

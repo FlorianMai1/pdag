@@ -38,6 +38,7 @@ func TestStoreCRUD(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatal("expected record, got nil")
+		return
 	}
 	if got.Principal != "alice" {
 		t.Errorf("principal = %q, want %q", got.Principal, "alice")
