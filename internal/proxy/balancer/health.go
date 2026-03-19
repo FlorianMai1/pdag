@@ -50,6 +50,7 @@ func (lb *Balancer) checkOne(ctx context.Context, client *http.Client, entry *ba
 
 	req, err := http.NewRequestWithContext(checkCtx, "GET", entry.url+cfg.Path, nil)
 	if err != nil {
+		slog.Error("health check request creation failed", "backend", entry.url, "error", err)
 		return
 	}
 	req.Header.Set("X-API-Key", entry.apiKey)
