@@ -110,10 +110,22 @@ func runServe() error {
 	metricsSrv := metrics.NewServer(cfg.Metrics.Listen)
 	adminSrv := newAdminServer(cfg.Admin.Listen, cfg.AdminToken, keygen, keyStore)
 
+	// Create the signal context shared by all background goroutines.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	sighupDone := make(chan struct{})
 	go handleSIGHUP(reopenAudit, sighupDone)
 
-	err = listenAndServe(cfg.Listen, cfg.Metrics.Listen, cfg.Admin.Listen, cfg.ShutdownWait, proxySrv, metricsSrv, adminSrv)
+	// Start automatic expired key cleanup if configured.
+	if cfg.KeyCleanupInterval > 0 {
+		if keyMgr, ok := keyStore.(store.KeyManager); ok {
+			go runKeyCleanup(ctx, cfg.KeyCleanupInterval, keyMgr)
+			slog.Info("automatic key cleanup enabled", "interval", cfg.KeyCleanupInterval)
+		}
+	}
+
+	err = listenAndServe(ctx, cfg.ShutdownWait, proxySrv, metricsSrv, adminSrv)
 
 	// Stop SIGHUP handler after server shutdown.
 	close(sighupDone)
@@ -312,10 +324,32 @@ func handleSIGHUP(reopenFn func() error, done <-chan struct{}) {
 	}
 }
 
-func listenAndServe(proxyAddr, metricsAddr, adminAddr string, shutdownWait time.Duration, proxySrv, metricsSrv, adminSrv *http.Server) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
+// runKeyCleanup periodically deletes expired keys from the store.
+func runKeyCleanup(ctx context.Context, interval time.Duration, mgr store.KeyManager) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := mgr.DeleteExpired(ctx, time.Now())
+			if err != nil {
+				slog.Error("auto key cleanup failed", "error", err)
+				continue
+			}
+			if n > 0 {
+				slog.Info("auto key cleanup completed", "deleted", n)
+				if auditErr := mgr.AuditKeyEvent(ctx, "", "auto_cleanup", "system", nil,
+					map[string]any{"deleted": n}); auditErr != nil {
+					slog.Error("audit auto cleanup", "error", auditErr)
+				}
+			}
+		}
+	}
+}
 
+func listenAndServe(ctx context.Context, shutdownWait time.Duration, proxySrv, metricsSrv, adminSrv *http.Server) error {
 	errCh := make(chan error, 3)
 	go func() {
 		if err := proxySrv.ListenAndServe(); err != http.ErrServerClosed {
@@ -337,7 +371,15 @@ func listenAndServe(proxyAddr, metricsAddr, adminAddr string, shutdownWait time.
 		}()
 	}
 
-	slog.Info("server ready", "proxy", proxyAddr, "metrics", metricsAddr, "admin", adminAddr)
+	slog.Info("server ready",
+		"proxy", proxySrv.Addr,
+		"metrics", metricsSrv.Addr,
+		"admin", func() string {
+			if adminSrv != nil {
+				return adminSrv.Addr
+			}
+			return "disabled"
+		}())
 
 	select {
 	case err := <-errCh:

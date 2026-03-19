@@ -81,14 +81,15 @@ type Tracing struct {
 }
 
 type Config struct {
-	Listen          string        `mapstructure:"listen"`
-	MaxBodySize     int64         `mapstructure:"max_body_size"`
-	AuditLog        string        `mapstructure:"audit_log"`
-	AuditBufferSize int           `mapstructure:"audit_buffer_size"`
-	AuditLogBody    bool          `mapstructure:"audit_log_body"`
-	AdminToken      string        `mapstructure:"admin_token"`
-	AdminTokenFile  string        `mapstructure:"admin_token_file"`
-	ShutdownWait    time.Duration `mapstructure:"shutdown_wait"`
+	Listen             string        `mapstructure:"listen"`
+	MaxBodySize        int64         `mapstructure:"max_body_size"`
+	AuditLog           string        `mapstructure:"audit_log"`
+	AuditBufferSize    int           `mapstructure:"audit_buffer_size"`
+	AuditLogBody       bool          `mapstructure:"audit_log_body"`
+	AdminToken         string        `mapstructure:"admin_token"`
+	AdminTokenFile     string        `mapstructure:"admin_token_file"`
+	ShutdownWait       time.Duration `mapstructure:"shutdown_wait"`
+	KeyCleanupInterval time.Duration `mapstructure:"key_cleanup_interval"`
 
 	Upstreams   Upstreams    `mapstructure:"upstreams"`
 	DB          DB           `mapstructure:"db"`
@@ -130,6 +131,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("upstreams.health_check.path", "/api/v1/servers")
 
 	v.SetDefault("audit_buffer_size", 4096)
+	v.SetDefault("key_cleanup_interval", 0)
 	v.SetDefault("audit_log_body", false)
 
 	// Register all keys so AutomaticEnv can find them.
@@ -247,6 +249,11 @@ func (c *Config) validate() error {
 	// MaxBodySize.
 	if c.MaxBodySize <= 0 {
 		return fmt.Errorf("max_body_size must be > 0, got %d", c.MaxBodySize)
+	}
+
+	// Key cleanup interval.
+	if c.KeyCleanupInterval < 0 {
+		return fmt.Errorf("key_cleanup_interval must be >= 0, got %v", c.KeyCleanupInterval)
 	}
 
 	// Audit buffer size.
