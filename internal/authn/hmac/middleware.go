@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mai/pdag/internal/authn"
+	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/middleware"
 	"github.com/mai/pdag/internal/store"
 )
@@ -28,6 +29,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 
 			apiKey := r.Header.Get("X-API-Key")
 			if apiKey == "" {
+				metrics.AuthnTotal.WithLabelValues("missing_header").Inc()
 				slog.Debug("missing X-API-Key header", "request_id", requestID)
 				http.Error(w, "missing X-API-Key header", http.StatusUnauthorized)
 				return
@@ -35,6 +37,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 
 			keyID, secret, ok := strings.Cut(apiKey, ":")
 			if !ok || keyID == "" || secret == "" {
+				metrics.AuthnTotal.WithLabelValues("malformed_header").Inc()
 				slog.Debug("malformed X-API-Key header", "request_id", requestID)
 				http.Error(w, "malformed X-API-Key header", http.StatusUnauthorized)
 				return
@@ -46,8 +49,13 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 				trace.WithAttributes(attribute.String("authn.key_id", keyID)),
 			)
 
+			start := time.Now()
 			rec, err := keyStore.GetByID(authnCtx, keyID)
+			metrics.KeyStoreQueryDuration.Observe(time.Since(start).Seconds())
+
 			if err != nil {
+				metrics.KeyStoreErrorsTotal.Inc()
+				metrics.AuthnTotal.WithLabelValues("store_error").Inc()
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "keystore lookup failed")
 				span.End()
@@ -56,6 +64,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 				return
 			}
 			if rec == nil {
+				metrics.AuthnTotal.WithLabelValues("unknown_key").Inc()
 				span.SetAttributes(attribute.String("authn.result", "unknown_key"))
 				span.End()
 				slog.Debug("unknown key ID", "request_id", requestID, "key_id", keyID)
@@ -64,6 +73,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 			}
 
 			if !rec.Enabled {
+				metrics.AuthnTotal.WithLabelValues("disabled").Inc()
 				span.SetAttributes(attribute.String("authn.result", "disabled"))
 				span.End()
 				slog.Debug("disabled key", "request_id", requestID, "key_id", keyID)
@@ -72,6 +82,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 			}
 
 			if rec.ExpiresAt != nil && rec.ExpiresAt.Before(time.Now()) {
+				metrics.AuthnTotal.WithLabelValues("expired").Inc()
 				span.SetAttributes(attribute.String("authn.result", "expired"))
 				span.End()
 				slog.Debug("expired key", "request_id", requestID, "key_id", keyID)
@@ -82,11 +93,13 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 			if err := authnService.Authenticate(secret, rec); err != nil {
 				span.RecordError(err)
 				if errors.Is(err, authn.ErrInvalidCredentials) {
+					metrics.AuthnTotal.WithLabelValues("invalid_credentials").Inc()
 					span.SetAttributes(attribute.String("authn.result", "invalid_credentials"))
 					span.End()
 					slog.Debug("invalid key secret", "request_id", requestID, "key_id", keyID)
 					http.Error(w, "invalid credentials", http.StatusUnauthorized)
 				} else {
+					metrics.AuthnTotal.WithLabelValues("authn_error").Inc()
 					span.SetStatus(codes.Error, "authentication failed")
 					span.End()
 					slog.Error("authentication failed", "request_id", requestID, "key_id", keyID, "error", err)
@@ -95,6 +108,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 				return
 			}
 
+			metrics.AuthnTotal.WithLabelValues("success").Inc()
 			span.SetAttributes(
 				attribute.String("authn.principal", rec.Principal),
 				attribute.String("authn.result", "success"),
