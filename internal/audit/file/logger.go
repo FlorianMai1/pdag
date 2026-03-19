@@ -37,10 +37,14 @@ type Logger struct {
 
 // NewLogger opens (or creates) the audit log file in append mode
 // and starts the background flush goroutine.
-func NewLogger(path string) (*Logger, error) {
+// bufSize controls the entry channel capacity; if <= 0, defaultBufferSize is used.
+func NewLogger(path string, bufSize int) (*Logger, error) {
+	if bufSize <= 0 {
+		bufSize = defaultBufferSize
+	}
 	l := &Logger{
 		path:   path,
-		ch:     make(chan audit.Entry, defaultBufferSize),
+		ch:     make(chan audit.Entry, bufSize),
 		reopen: make(chan struct{}, 1),
 		stop:   make(chan struct{}),
 		done:   make(chan struct{}),

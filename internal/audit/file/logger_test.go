@@ -16,7 +16,7 @@ func TestLoggerWritesJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path)
+	l, err := NewLogger(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestLoggerReopen(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path)
+	l, err := NewLogger(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestLoggerBufferFull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path)
+	l, err := NewLogger(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestLoggerConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path)
+	l, err := NewLogger(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestLoggerCloseFlushes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path)
+	l, err := NewLogger(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

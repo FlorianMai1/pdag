@@ -81,12 +81,13 @@ type Tracing struct {
 }
 
 type Config struct {
-	Listen         string        `mapstructure:"listen"`
-	MaxBodySize    int64         `mapstructure:"max_body_size"`
-	AuditLog       string        `mapstructure:"audit_log"`
-	AdminToken     string        `mapstructure:"admin_token"`
-	AdminTokenFile string        `mapstructure:"admin_token_file"`
-	ShutdownWait   time.Duration `mapstructure:"shutdown_wait"`
+	Listen          string        `mapstructure:"listen"`
+	MaxBodySize     int64         `mapstructure:"max_body_size"`
+	AuditLog        string        `mapstructure:"audit_log"`
+	AuditBufferSize int           `mapstructure:"audit_buffer_size"`
+	AdminToken      string        `mapstructure:"admin_token"`
+	AdminTokenFile  string        `mapstructure:"admin_token_file"`
+	ShutdownWait    time.Duration `mapstructure:"shutdown_wait"`
 
 	Upstreams   Upstreams    `mapstructure:"upstreams"`
 	DB          DB           `mapstructure:"db"`
@@ -126,6 +127,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("upstreams.health_check.interval", 10*time.Second)
 	v.SetDefault("upstreams.health_check.timeout", 2*time.Second)
 	v.SetDefault("upstreams.health_check.path", "/api/v1/servers")
+
+	v.SetDefault("audit_buffer_size", 4096)
 
 	// Register all keys so AutomaticEnv can find them.
 	v.SetDefault("audit_log", "")
@@ -242,6 +245,11 @@ func (c *Config) validate() error {
 	// MaxBodySize.
 	if c.MaxBodySize <= 0 {
 		return fmt.Errorf("max_body_size must be > 0, got %d", c.MaxBodySize)
+	}
+
+	// Audit buffer size.
+	if c.AuditBufferSize <= 0 {
+		return fmt.Errorf("audit_buffer_size must be > 0, got %d", c.AuditBufferSize)
 	}
 
 	// Plugins.
