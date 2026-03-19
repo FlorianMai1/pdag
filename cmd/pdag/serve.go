@@ -98,7 +98,7 @@ func runServe() error {
 
 	limiter := openRateLimiter(cfg)
 
-	proxySrv := newProxyServer(cfg.Listen, cfg.MaxBodySize, limiter, backend, keyStore, auditPub, pluginMgr, hmacService)
+	proxySrv := newProxyServer(cfg.Listen, cfg.MaxBodySize, cfg.AuditLogBody, limiter, backend, keyStore, auditPub, pluginMgr, hmacService)
 
 	// Extract current HMAC secret for admin key generation.
 	currentHmac, err := cfg.CurrentHmacSecret()
@@ -221,12 +221,12 @@ func openPluginManager(cfg *config.Config) (*authzplugin.Manager, error) {
 	return mgr, nil
 }
 
-func newProxyServer(listenAddr string, maxBodySize int64, rl ratelimit.RateLimiter, lb proxy.Backend, keyStore store.KeyStore, auditPub audit.Publisher, pluginMgr *authzplugin.Manager, authnService authn.Service) *http.Server {
+func newProxyServer(listenAddr string, maxBodySize int64, auditLogBody bool, rl ratelimit.RateLimiter, lb proxy.Backend, keyStore store.KeyStore, auditPub audit.Publisher, pluginMgr *authzplugin.Manager, authnService authn.Service) *http.Server {
 	handler := middleware.Chain(
 		middleware.RequestID,
 		metrics.Middleware,
 		tracing.Middleware,
-		audit.Middleware(auditPub),
+		audit.Middleware(auditPub, auditLogBody),
 		hmac.Middleware(keyStore, authnService),
 		ratelimit.Middleware(rl),
 		middleware.BodyBuffer(maxBodySize),

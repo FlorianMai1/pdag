@@ -35,6 +35,9 @@ func BodyBuffer(maxBytes int64) func(http.Handler) http.Handler {
 			if sizePtr := GetBodySizePtr(ctx); sizePtr != nil {
 				*sizePtr = int64(len(body))
 			}
+			if bytesPtr := GetBodyBytesPtr(ctx); bytesPtr != nil {
+				*bytesPtr = body
+			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			r.ContentLength = int64(len(body))
 			next.ServeHTTP(w, r.WithContext(ctx))

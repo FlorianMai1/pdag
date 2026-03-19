@@ -8,14 +8,15 @@ import (
 type contextKey string
 
 const (
-	requestIDKey   contextKey = "requestID"
-	principalKey   contextKey = "principal"
-	keyIDKey       contextKey = "keyID"
-	rolesKey       contextKey = "roles"
-	bodyBytesKey   contextKey = "bodyBytes"
-	bodySizePtrKey contextKey = "bodySizePtr"
-	authzResultKey contextKey = "authzResult"
-	statusCodeKey  contextKey = "statusCodePtr"
+	requestIDKey    contextKey = "requestID"
+	principalKey    contextKey = "principal"
+	keyIDKey        contextKey = "keyID"
+	rolesKey        contextKey = "roles"
+	bodyBytesKey    contextKey = "bodyBytes"
+	bodySizePtrKey  contextKey = "bodySizePtr"
+	bodyBytesPtrKey contextKey = "bodyBytesPtr"
+	authzResultKey  contextKey = "authzResult"
+	statusCodeKey   contextKey = "statusCodePtr"
 )
 
 type AuthzResult struct {
@@ -77,6 +78,18 @@ func WithBodySizePtr(ctx context.Context, size *int64) context.Context {
 // GetBodySizePtr retrieves the body size pointer from context.
 func GetBodySizePtr(ctx context.Context) *int64 {
 	v, _ := ctx.Value(bodySizePtrKey).(*int64)
+	return v
+}
+
+// WithBodyBytesPtr stores a pointer that downstream middleware can write the
+// buffered request body to. Used by audit middleware to capture the body.
+func WithBodyBytesPtr(ctx context.Context, p *[]byte) context.Context {
+	return context.WithValue(ctx, bodyBytesPtrKey, p)
+}
+
+// GetBodyBytesPtr retrieves the body bytes pointer from context.
+func GetBodyBytesPtr(ctx context.Context) *[]byte {
+	v, _ := ctx.Value(bodyBytesPtrKey).(*[]byte)
 	return v
 }
 

@@ -26,6 +26,7 @@ func TestAuthzResultPtr(t *testing.T) {
 	ptr := GetAuthzResultPtr(ctx)
 	if ptr == nil {
 		t.Fatal("expected non-nil pointer")
+		return
 	}
 	ptr.Decision = "allow"
 	ptr.Plugin = "admin"

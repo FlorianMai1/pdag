@@ -3,6 +3,7 @@ package audit
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestAuditMiddleware(t *testing.T) {
 		})
 	}
 
-	handler := middleware.RequestID(withStatusCode(Middleware(pub)(inner)))
+	handler := middleware.RequestID(withStatusCode(Middleware(pub, false)(inner)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers?q=test", nil)
 	req.Header.Set("User-Agent", "test-agent")
@@ -79,6 +80,70 @@ func TestAuditMiddleware(t *testing.T) {
 	}
 }
 
+func TestAuditMiddlewareLogsBody(t *testing.T) {
+	pub := &mockPublisher{}
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	withStatusCode := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rec := middleware.NewStatusRecorder(w)
+			ctx := middleware.WithStatusCodePtr(r.Context(), &rec.StatusCode)
+			next.ServeHTTP(rec, r.WithContext(ctx))
+		})
+	}
+
+	// Chain: audit(logBody=true) → bodyBuffer → inner
+	handler := withStatusCode(Middleware(pub, true)(middleware.BodyBuffer(1 << 20)(inner)))
+
+	body := `{"rrsets":[{"name":"example.com.","type":"A"}]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/servers/localhost/zones/example.com.", strings.NewReader(body))
+	req.RemoteAddr = "10.0.0.1:12345"
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
+	if len(pub.entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(pub.entries))
+	}
+	got := pub.entries[0]
+
+	if got.RequestBody == nil {
+		t.Fatal("request_body is nil, expected body to be logged")
+	}
+	if string(got.RequestBody) != body {
+		t.Errorf("request_body = %s, want %s", got.RequestBody, body)
+	}
+}
+
+func TestAuditMiddlewareOmitsBodyWhenDisabled(t *testing.T) {
+	pub := &mockPublisher{}
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// logBody=false — should not capture body.
+	handler := Middleware(pub, false)(middleware.BodyBuffer(1 << 20)(inner))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"data":"test"}`))
+	req.RemoteAddr = "10.0.0.1:12345"
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
+	if len(pub.entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(pub.entries))
+	}
+	if pub.entries[0].RequestBody != nil {
+		t.Errorf("request_body should be nil when logBody=false, got %s", pub.entries[0].RequestBody)
+	}
+}
+
 func TestAuditTimestampIsCompletionTime(t *testing.T) {
 	pub := &mockPublisher{}
 
@@ -96,7 +161,7 @@ func TestAuditTimestampIsCompletionTime(t *testing.T) {
 		})
 	}
 
-	handler := withStatusCode(Middleware(pub)(inner))
+	handler := withStatusCode(Middleware(pub, false)(inner))
 
 	before := time.Now()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,7 +14,8 @@ import (
 // Middleware returns an HTTP middleware that logs every request to the audit log
 // after the response is written. It reads the status code from the shared context
 // pointer set by the metrics middleware (avoiding double StatusRecorder wrapping).
-func Middleware(pub Publisher) func(http.Handler) http.Handler {
+// When logBody is true, the buffered request body is included in the audit entry.
+func Middleware(pub Publisher, logBody bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -22,6 +24,14 @@ func Middleware(pub Publisher) func(http.Handler) http.Handler {
 			// so inner middleware (authz) can write to it.
 			var authzResult middleware.AuthzResult
 			ctx := middleware.WithAuthzResultPtr(r.Context(), &authzResult)
+
+			// Allocate body bytes pointer so BodyBuffer (downstream) can
+			// write the buffered request body back to us.
+			var bodyBytes []byte
+			if logBody {
+				ctx = middleware.WithBodyBytesPtr(ctx, &bodyBytes)
+			}
+
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -50,6 +60,16 @@ func Middleware(pub Publisher) func(http.Handler) http.Handler {
 				AuthzDecision: authzResult.Decision,
 				AuthzPlugin:   authzResult.Plugin,
 				AuthzReason:   authzResult.Reason,
+			}
+
+			if logBody && len(bodyBytes) > 0 {
+				// Use json.RawMessage so valid JSON bodies are embedded
+				// inline rather than base64-encoded.
+				if json.Valid(bodyBytes) {
+					entry.RequestBody = json.RawMessage(bodyBytes)
+				} else {
+					entry.RequestBody = json.RawMessage(`"` + string(bodyBytes) + `"`)
+				}
 			}
 
 			if err := pub.Publish(entry); err != nil {
