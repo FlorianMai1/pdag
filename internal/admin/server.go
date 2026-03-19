@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -116,6 +117,7 @@ func getKey(mgr store.KeyManager) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// Error is unrecoverable: headers are already sent.
 		_ = json.NewEncoder(w).Encode(keyResponse{
 			ID:        rec.ID,
 			Principal: rec.Principal,
@@ -142,6 +144,7 @@ func purgeExpired(mgr store.KeyManager) http.HandlerFunc {
 		}
 		slog.Info("purged expired keys", "count", n)
 		w.Header().Set("Content-Type", "application/json")
+		// Error is unrecoverable: headers are already sent.
 		_ = json.NewEncoder(w).Encode(map[string]int64{"deleted": n})
 	}
 }
@@ -168,6 +171,10 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 		}
 		if req.Principal == "" {
 			http.Error(w, "principal is required", http.StatusBadRequest)
+			return
+		}
+		if len(req.Roles) == 0 {
+			http.Error(w, "at least one role is required", http.StatusBadRequest)
 			return
 		}
 
@@ -221,6 +228,7 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		// Error is unrecoverable: headers are already sent.
 		_ = json.NewEncoder(w).Encode(createKeyResponse{
 			ID:        keyID,
 			Secret:    secret,
@@ -289,6 +297,7 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Error is unrecoverable: headers are already sent.
 		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
@@ -297,6 +306,10 @@ func deleteKey(mgr store.KeyManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if err := mgr.Delete(r.Context(), id); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
 			slog.Error("delete key", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -312,6 +325,10 @@ func setEnabled(mgr store.KeyManager, enabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if err := mgr.SetEnabled(r.Context(), id, enabled); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
 			slog.Error("set enabled", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -354,6 +371,10 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 		}
 
 		if err := mgr.SetExpiresAt(r.Context(), id, expiresAt); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
 			slog.Error("set expiry", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -382,6 +403,10 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 		}
 
 		if err := mgr.SetRoles(r.Context(), id, req.Roles); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
 			slog.Error("set roles", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
