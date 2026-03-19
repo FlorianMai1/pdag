@@ -46,6 +46,7 @@ func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.
 	mux.HandleFunc("PATCH /admin/keys/{id}/disable", withAuth(adminToken, setEnabled(mgr, false)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
 	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr)))
+	mux.HandleFunc("POST /admin/keys/{id}/rotate", withAuth(adminToken, rotateKey(mgr, keygen)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/expiry", withAuth(adminToken, setExpiry(mgr)))
 
 	return mux
@@ -385,6 +386,60 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 			slog.Error("audit key update_expiry", "error", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type rotateKeyResponse struct {
+	ID     string `json:"id"`
+	Secret string `json:"secret"`
+}
+
+func rotateKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		rec, err := mgr.GetByID(r.Context(), id)
+		if err != nil {
+			slog.Error("rotate key lookup", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if rec == nil {
+			http.Error(w, "key not found", http.StatusNotFound)
+			return
+		}
+
+		secret, err := keygen.GenerateSecret()
+		if err != nil {
+			slog.Error("generate secret for rotation", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		hash := keygen.Hash(secret)
+		if err := mgr.UpdateHash(r.Context(), id, hash, keygen.HmacKeyID()); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
+			slog.Error("rotate key", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := mgr.AuditKeyEvent(r.Context(), id, "rotate", "admin_api",
+			map[string]any{"hmac_key_id": rec.HmacKeyID},
+			map[string]any{"hmac_key_id": keygen.HmacKeyID()},
+		); err != nil {
+			slog.Error("audit key rotate", "error", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		// Error is unrecoverable: headers are already sent.
+		_ = json.NewEncoder(w).Encode(rotateKeyResponse{
+			ID:     id,
+			Secret: secret,
+		})
 	}
 }
 

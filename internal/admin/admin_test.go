@@ -303,6 +303,82 @@ func TestListKeysFiltering(t *testing.T) {
 	}
 }
 
+func TestRotateKey(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create a key.
+	body := `{"principal":"alice","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var created struct {
+		ID     string `json:"id"`
+		Secret string `json:"secret"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Get original hash.
+	origKey, _ := mgr.GetByID(context.Background(), created.ID)
+	origHash := origKey.KeyHash
+
+	// Rotate.
+	req = httptest.NewRequest("POST", "/admin/keys/"+created.ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var rotated struct {
+		ID     string `json:"id"`
+		Secret string `json:"secret"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &rotated)
+
+	if rotated.ID != created.ID {
+		t.Errorf("rotated id = %q, want %q", rotated.ID, created.ID)
+	}
+	if rotated.Secret == "" {
+		t.Error("rotated secret is empty")
+	}
+	if rotated.Secret == created.Secret {
+		t.Error("rotated secret should differ from original")
+	}
+
+	// Verify hash was updated in store.
+	updatedKey, _ := mgr.GetByID(context.Background(), created.ID)
+	if updatedKey.KeyHash == origHash {
+		t.Error("key hash should have changed after rotation")
+	}
+
+	// Principal and roles should be unchanged.
+	if updatedKey.Principal != "alice" {
+		t.Errorf("principal = %q, want alice", updatedKey.Principal)
+	}
+	if len(updatedKey.Roles) != 1 || updatedKey.Roles[0] != "admin" {
+		t.Errorf("roles = %v, want [admin]", updatedKey.Roles)
+	}
+}
+
+func TestRotateKeyNotFound(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	req := httptest.NewRequest("POST", "/admin/keys/nonexistent/rotate", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("rotate missing key: status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestPurgeExpiredKeys(t *testing.T) {
 	mgr := memory.NewStore()
 	h := admin.Handler(mgr, testKeygen, testToken)
