@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -47,6 +48,7 @@ func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.
 	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
 	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr)))
 	mux.HandleFunc("POST /admin/keys/{id}/rotate", withAuth(adminToken, rotateKey(mgr, keygen)))
+	mux.HandleFunc("PUT /admin/keys/{id}/allowed-cidrs", withAuth(adminToken, updateAllowedCIDRs(mgr)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/expiry", withAuth(adminToken, setExpiry(mgr)))
 
 	return mux
@@ -120,12 +122,13 @@ func getKey(mgr store.KeyManager) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		// Error is unrecoverable: headers are already sent.
 		_ = json.NewEncoder(w).Encode(keyResponse{
-			ID:        rec.ID,
-			Principal: rec.Principal,
-			Roles:     rec.Roles,
-			Enabled:   rec.Enabled,
-			ExpiresAt: rec.ExpiresAt,
-			CreatedAt: rec.CreatedAt,
+			ID:           rec.ID,
+			Principal:    rec.Principal,
+			Roles:        rec.Roles,
+			AllowedCIDRs: rec.AllowedCIDRs,
+			Enabled:      rec.Enabled,
+			ExpiresAt:    rec.ExpiresAt,
+			CreatedAt:    rec.CreatedAt,
 		})
 	}
 }
@@ -240,12 +243,13 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 }
 
 type keyResponse struct {
-	ID        string     `json:"id"`
-	Principal string     `json:"principal"`
-	Roles     []string   `json:"roles"`
-	Enabled   bool       `json:"enabled"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID           string     `json:"id"`
+	Principal    string     `json:"principal"`
+	Roles        []string   `json:"roles"`
+	AllowedCIDRs []string   `json:"allowed_cidrs,omitempty"`
+	Enabled      bool       `json:"enabled"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 const (
@@ -288,12 +292,13 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 		resp := make([]keyResponse, len(keys))
 		for i, k := range keys {
 			resp[i] = keyResponse{
-				ID:        k.ID,
-				Principal: k.Principal,
-				Roles:     k.Roles,
-				Enabled:   k.Enabled,
-				ExpiresAt: k.ExpiresAt,
-				CreatedAt: k.CreatedAt,
+				ID:           k.ID,
+				Principal:    k.Principal,
+				Roles:        k.Roles,
+				AllowedCIDRs: k.AllowedCIDRs,
+				Enabled:      k.Enabled,
+				ExpiresAt:    k.ExpiresAt,
+				CreatedAt:    k.CreatedAt,
 			}
 		}
 
@@ -470,6 +475,46 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 			"roles": req.Roles,
 		}); err != nil {
 			slog.Error("audit key update_roles", "error", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type updateAllowedCIDRsRequest struct {
+	AllowedCIDRs []string `json:"allowed_cidrs"`
+}
+
+func updateAllowedCIDRs(mgr store.KeyManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+
+		var req updateAllowedCIDRsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Validate all CIDRs at the boundary.
+		for _, cidr := range req.AllowedCIDRs {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				http.Error(w, fmt.Sprintf("invalid CIDR %q: %v", cidr, err), http.StatusBadRequest)
+				return
+			}
+		}
+
+		if err := mgr.SetAllowedCIDRs(r.Context(), id, req.AllowedCIDRs); err != nil {
+			if errors.Is(err, store.ErrKeyNotFound) {
+				http.Error(w, "key not found", http.StatusNotFound)
+				return
+			}
+			slog.Error("set allowed_cidrs", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := mgr.AuditKeyEvent(r.Context(), id, "update_allowed_cidrs", "admin_api", nil, map[string]any{
+			"allowed_cidrs": req.AllowedCIDRs,
+		}); err != nil {
+			slog.Error("audit key update_allowed_cidrs", "error", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

@@ -431,6 +431,80 @@ func TestPurgeExpiredKeys(t *testing.T) {
 	}
 }
 
+func TestUpdateAllowedCIDRs(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create a key.
+	body := `{"principal":"alice","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Set allowed CIDRs.
+	cidrsBody := `{"allowed_cidrs":["10.0.0.0/8","192.168.1.0/24"]}`
+	req = httptest.NewRequest("PUT", "/admin/keys/"+created.ID+"/allowed-cidrs", bytes.NewBufferString(cidrsBody))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("set cidrs status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+
+	// Verify stored.
+	k, _ := mgr.GetByID(context.Background(), created.ID)
+	if len(k.AllowedCIDRs) != 2 || k.AllowedCIDRs[0] != "10.0.0.0/8" {
+		t.Errorf("allowed_cidrs = %v, want [10.0.0.0/8 192.168.1.0/24]", k.AllowedCIDRs)
+	}
+
+	// Clear CIDRs.
+	req = httptest.NewRequest("PUT", "/admin/keys/"+created.ID+"/allowed-cidrs", bytes.NewBufferString(`{"allowed_cidrs":[]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clear cidrs status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+
+	k, _ = mgr.GetByID(context.Background(), created.ID)
+	if len(k.AllowedCIDRs) != 0 {
+		t.Errorf("expected empty allowed_cidrs, got %v", k.AllowedCIDRs)
+	}
+}
+
+func TestUpdateAllowedCIDRsInvalid(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create a key.
+	body := `{"principal":"alice","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Invalid CIDR should be rejected.
+	cidrsBody := `{"allowed_cidrs":["not-a-cidr"]}`
+	req = httptest.NewRequest("PUT", "/admin/keys/"+created.ID+"/allowed-cidrs", bytes.NewBufferString(cidrsBody))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid cidr status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestPurgeExpiredDoesNotMatchSingleKeyRoute(t *testing.T) {
 	mgr := memory.NewStore()
 	h := admin.Handler(mgr, testKeygen, testToken)

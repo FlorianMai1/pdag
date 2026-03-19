@@ -78,15 +78,15 @@ func runMigrations(db *sql.DB, path string) error {
 
 func (s *Store) GetByID(ctx context.Context, id string) (*store.KeyRecord, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+		`SELECT id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at, created_at, updated_at
 		 FROM api_keys WHERE id = $1`, id)
 
 	rec := &store.KeyRecord{}
 	var expiresAt sql.NullTime
-	var roles TextArray
+	var roles, allowedCIDRs TextArray
 	err := row.Scan(
 		&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
-		&roles, &rec.Enabled, &expiresAt,
+		&roles, &allowedCIDRs, &rec.Enabled, &expiresAt,
 		&rec.CreatedAt, &rec.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -96,6 +96,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*store.KeyRecord, error
 		return nil, fmt.Errorf("get key %q: %w", id, err)
 	}
 	rec.Roles = []string(roles)
+	rec.AllowedCIDRs = []string(allowedCIDRs)
 	if expiresAt.Valid {
 		rec.ExpiresAt = &expiresAt.Time
 	}
@@ -104,10 +105,10 @@ func (s *Store) GetByID(ctx context.Context, id string) (*store.KeyRecord, error
 
 func (s *Store) Create(ctx context.Context, rec *store.KeyRecord) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, key_hash, hmac_key_id, principal, roles, enabled, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		`INSERT INTO api_keys (id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		rec.ID, rec.KeyHash, rec.HmacKeyID, rec.Principal,
-		TextArray(rec.Roles), rec.Enabled, rec.ExpiresAt,
+		TextArray(rec.Roles), TextArray(rec.AllowedCIDRs), rec.Enabled, rec.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create key %q: %w", rec.ID, err)
@@ -117,7 +118,7 @@ func (s *Store) Create(ctx context.Context, rec *store.KeyRecord) error {
 
 func (s *Store) List(ctx context.Context) ([]*store.KeyRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+		`SELECT id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at, created_at, updated_at
 		 FROM api_keys ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list keys: %w", err)
@@ -128,15 +129,16 @@ func (s *Store) List(ctx context.Context) ([]*store.KeyRecord, error) {
 	for rows.Next() {
 		rec := &store.KeyRecord{}
 		var expiresAt sql.NullTime
-		var roles TextArray
+		var roles, allowedCIDRs TextArray
 		if err := rows.Scan(
 			&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
-			&roles, &rec.Enabled, &expiresAt,
+			&roles, &allowedCIDRs, &rec.Enabled, &expiresAt,
 			&rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
 		}
 		rec.Roles = []string(roles)
+		rec.AllowedCIDRs = []string(allowedCIDRs)
 		if expiresAt.Valid {
 			rec.ExpiresAt = &expiresAt.Time
 		}
@@ -147,7 +149,7 @@ func (s *Store) List(ctx context.Context) ([]*store.KeyRecord, error) {
 
 func (s *Store) ListPaged(ctx context.Context, limit, offset int) ([]*store.KeyRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+		`SELECT id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at, created_at, updated_at
 		 FROM api_keys ORDER BY created_at LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list keys paged: %w", err)
@@ -158,15 +160,16 @@ func (s *Store) ListPaged(ctx context.Context, limit, offset int) ([]*store.KeyR
 	for rows.Next() {
 		rec := &store.KeyRecord{}
 		var expiresAt sql.NullTime
-		var roles TextArray
+		var roles, allowedCIDRs TextArray
 		if err := rows.Scan(
 			&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
-			&roles, &rec.Enabled, &expiresAt,
+			&roles, &allowedCIDRs, &rec.Enabled, &expiresAt,
 			&rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
 		}
 		rec.Roles = []string(roles)
+		rec.AllowedCIDRs = []string(allowedCIDRs)
 		if expiresAt.Valid {
 			rec.ExpiresAt = &expiresAt.Time
 		}
@@ -176,7 +179,7 @@ func (s *Store) ListPaged(ctx context.Context, limit, offset int) ([]*store.KeyR
 }
 
 func (s *Store) ListFiltered(ctx context.Context, limit, offset int, principal, role string) ([]*store.KeyRecord, error) {
-	query := `SELECT id, key_hash, hmac_key_id, principal, roles, enabled, expires_at, created_at, updated_at
+	query := `SELECT id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at, created_at, updated_at
 		 FROM api_keys WHERE 1=1`
 	args := []any{}
 	argN := 1
@@ -205,15 +208,16 @@ func (s *Store) ListFiltered(ctx context.Context, limit, offset int, principal, 
 	for rows.Next() {
 		rec := &store.KeyRecord{}
 		var expiresAt sql.NullTime
-		var roles TextArray
+		var roles, allowedCIDRs TextArray
 		if err := rows.Scan(
 			&rec.ID, &rec.KeyHash, &rec.HmacKeyID, &rec.Principal,
-			&roles, &rec.Enabled, &expiresAt,
+			&roles, &allowedCIDRs, &rec.Enabled, &expiresAt,
 			&rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
 		}
 		rec.Roles = []string(roles)
+		rec.AllowedCIDRs = []string(allowedCIDRs)
 		if expiresAt.Valid {
 			rec.ExpiresAt = &expiresAt.Time
 		}
@@ -238,6 +242,16 @@ func (s *Store) SetRoles(ctx context.Context, id string, roles []string) error {
 		TextArray(roles), id)
 	if err != nil {
 		return fmt.Errorf("set roles %q: %w", id, err)
+	}
+	return checkRowsAffected(res, id)
+}
+
+func (s *Store) SetAllowedCIDRs(ctx context.Context, id string, cidrs []string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET allowed_cidrs = $1, updated_at = NOW() WHERE id = $2`,
+		TextArray(cidrs), id)
+	if err != nil {
+		return fmt.Errorf("set allowed_cidrs %q: %w", id, err)
 	}
 	return checkRowsAffected(res, id)
 }

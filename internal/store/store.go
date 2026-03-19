@@ -10,15 +10,16 @@ import (
 var ErrKeyNotFound = errors.New("key not found")
 
 type KeyRecord struct {
-	ID        string
-	KeyHash   string
-	HmacKeyID string
-	Principal string
-	Roles     []string
-	Enabled   bool
-	ExpiresAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           string
+	KeyHash      string
+	HmacKeyID    string
+	Principal    string
+	Roles        []string
+	AllowedCIDRs []string
+	Enabled      bool
+	ExpiresAt    *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // KeyStore is the read-only interface used by the authn middleware on the hot path.
@@ -36,6 +37,7 @@ type KeyManager interface {
 	ListFiltered(ctx context.Context, limit, offset int, principal, role string) ([]*KeyRecord, error)
 	SetEnabled(ctx context.Context, id string, enabled bool) error
 	SetRoles(ctx context.Context, id string, roles []string) error
+	SetAllowedCIDRs(ctx context.Context, id string, cidrs []string) error
 	UpdateHash(ctx context.Context, id string, newHash string, newHmacKeyID string) error
 	Delete(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)

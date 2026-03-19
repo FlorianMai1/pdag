@@ -39,6 +39,8 @@ func (m *Store) GetByID(_ context.Context, id string) (*store.KeyRecord, error) 
 	cp := *rec
 	cp.Roles = make([]string, len(rec.Roles))
 	copy(cp.Roles, rec.Roles)
+	cp.AllowedCIDRs = make([]string, len(rec.AllowedCIDRs))
+	copy(cp.AllowedCIDRs, rec.AllowedCIDRs)
 	return &cp, nil
 }
 
@@ -51,6 +53,8 @@ func (m *Store) Create(_ context.Context, rec *store.KeyRecord) error {
 	cp := *rec
 	cp.Roles = make([]string, len(rec.Roles))
 	copy(cp.Roles, rec.Roles)
+	cp.AllowedCIDRs = make([]string, len(rec.AllowedCIDRs))
+	copy(cp.AllowedCIDRs, rec.AllowedCIDRs)
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
 	}
@@ -67,6 +71,8 @@ func (m *Store) List(_ context.Context) ([]*store.KeyRecord, error) {
 		cp := *rec
 		cp.Roles = make([]string, len(rec.Roles))
 		copy(cp.Roles, rec.Roles)
+		cp.AllowedCIDRs = make([]string, len(rec.AllowedCIDRs))
+		copy(cp.AllowedCIDRs, rec.AllowedCIDRs)
 		result = append(result, &cp)
 	}
 	return result, nil
@@ -102,6 +108,8 @@ func (m *Store) ListPaged(_ context.Context, limit, offset int) ([]*store.KeyRec
 		cp := *rec
 		cp.Roles = make([]string, len(rec.Roles))
 		copy(cp.Roles, rec.Roles)
+		cp.AllowedCIDRs = make([]string, len(rec.AllowedCIDRs))
+		copy(cp.AllowedCIDRs, rec.AllowedCIDRs)
 		result[i] = &cp
 	}
 	return result, nil
@@ -142,6 +150,8 @@ func (m *Store) ListFiltered(_ context.Context, limit, offset int, principal, ro
 		cp := *rec
 		cp.Roles = make([]string, len(rec.Roles))
 		copy(cp.Roles, rec.Roles)
+		cp.AllowedCIDRs = make([]string, len(rec.AllowedCIDRs))
+		copy(cp.AllowedCIDRs, rec.AllowedCIDRs)
 		result[i] = &cp
 	}
 	return result, nil
@@ -168,6 +178,19 @@ func (m *Store) SetRoles(_ context.Context, id string, roles []string) error {
 	}
 	rec.Roles = make([]string, len(roles))
 	copy(rec.Roles, roles)
+	rec.UpdatedAt = time.Now()
+	return nil
+}
+
+func (m *Store) SetAllowedCIDRs(_ context.Context, id string, cidrs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.keys[id]
+	if !ok {
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
+	}
+	rec.AllowedCIDRs = make([]string, len(cidrs))
+	copy(rec.AllowedCIDRs, cidrs)
 	rec.UpdatedAt = time.Now()
 	return nil
 }

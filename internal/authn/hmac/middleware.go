@@ -3,6 +3,7 @@ package hmac
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -70,6 +71,40 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 				slog.Debug("unknown key ID", "request_id", requestID, "key_id", keyID)
 				http.Error(w, "invalid credentials", http.StatusUnauthorized)
 				return
+			}
+
+			// Check IP allowlist before more expensive checks.
+			if len(rec.AllowedCIDRs) > 0 {
+				sourceIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+				clientIP := net.ParseIP(sourceIP)
+				if clientIP == nil {
+					metrics.AuthnTotal.WithLabelValues("invalid_source_ip").Inc()
+					span.SetAttributes(attribute.String("authn.result", "invalid_source_ip"))
+					span.End()
+					slog.Debug("invalid source IP", "request_id", requestID, "key_id", keyID, "remote_addr", r.RemoteAddr)
+					http.Error(w, "invalid source IP", http.StatusForbidden)
+					return
+				}
+				allowed := false
+				for _, cidr := range rec.AllowedCIDRs {
+					_, ipNet, err := net.ParseCIDR(cidr)
+					if err != nil {
+						slog.Warn("invalid CIDR in allowlist", "key_id", keyID, "cidr", cidr, "error", err)
+						continue
+					}
+					if ipNet.Contains(clientIP) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					metrics.AuthnTotal.WithLabelValues("ip_not_allowed").Inc()
+					span.SetAttributes(attribute.String("authn.result", "ip_not_allowed"))
+					span.End()
+					slog.Debug("IP not in allowlist", "request_id", requestID, "key_id", keyID, "source_ip", sourceIP)
+					http.Error(w, "ip not allowed", http.StatusForbidden)
+					return
+				}
 			}
 
 			if !rec.Enabled {
