@@ -60,13 +60,15 @@ func TestAdminRoleAllowsEverything(t *testing.T) {
 		Status(http.StatusOK)
 }
 
-func TestNoRolesReturns403(t *testing.T) {
-	keyID, secret := createTestKey(t, "no-roles-user", []string{})
-
-	proxyClient(t).GET("/api/v1/servers/localhost/zones").
-		WithHeader("X-API-Key", keyID+":"+secret).
+func TestCreateKeyWithNoRolesReturns400(t *testing.T) {
+	adminClient(t).POST("/admin/keys").
+		WithHeader("Authorization", "Bearer e2e-admin-token").
+		WithJSON(map[string]any{
+			"principal": "no-roles-user",
+			"roles":     []string{},
+		}).
 		Expect().
-		Status(http.StatusForbidden)
+		Status(http.StatusBadRequest)
 }
 
 func TestMultipleRolesFirstAllowWins(t *testing.T) {

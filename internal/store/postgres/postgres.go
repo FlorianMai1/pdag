@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -66,13 +65,9 @@ func runMigrations(db *sql.DB, path string) error {
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}
-	srcErr, dbErr := m.Close()
-	if srcErr != nil {
-		slog.Warn("close migration source", "error", srcErr)
-	}
-	if dbErr != nil {
-		slog.Warn("close migration database", "error", dbErr)
-	}
+	// Note: m.Close() is deliberately not called here because
+	// migratepg.WithInstance wraps the shared *sql.DB — calling
+	// m.Close() would close the database connection.
 	return nil
 }
 
@@ -108,7 +103,7 @@ func (s *Store) Create(ctx context.Context, rec *store.KeyRecord) error {
 		`INSERT INTO api_keys (id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		rec.ID, rec.KeyHash, rec.HmacKeyID, rec.Principal,
-		TextArray(rec.Roles), TextArray(rec.AllowedCIDRs), rec.Enabled, rec.ExpiresAt,
+		TextArray(rec.Roles), TextArray(coalesceStrings(rec.AllowedCIDRs)), rec.Enabled, rec.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create key %q: %w", rec.ID, err)
@@ -325,6 +320,15 @@ func (s *Store) DB() *sql.DB {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// coalesceStrings returns an empty slice if s is nil, ensuring TEXT[] NOT NULL
+// columns receive '{}' instead of NULL.
+func coalesceStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func checkRowsAffected(res sql.Result, id string) error {
