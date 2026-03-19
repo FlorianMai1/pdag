@@ -127,6 +127,39 @@ hey -z "$DURATION" -c "$CONCURRENCY" \
   -H "X-API-Key: ${API_KEY}" \
   "${PDAG_URL}/api/v1/servers/localhost/zones"
 
+# ── Benchmark: PATCH add rrsets (write path) ─────────────────────
+echo "==> Creating zone for write benchmarks..."
+curl -sf -X POST "${PDNS_API}/api/v1/servers/localhost/zones" \
+  -H "X-API-Key: ${PDNS_KEY}" -H "Content-Type: application/json" \
+  -d '{"name":"bench-write.example.com.","kind":"Native","nameservers":["ns1.example.com."]}' >/dev/null 2>&1 || true
+
+echo ""
+echo "══════════════════════════════════════════════════"
+echo "  PATCH add rrsets to bench-write.example.com."
+echo "  Duration: ${DURATION}  Concurrency: ${CONCURRENCY}"
+echo "══════════════════════════════════════════════════"
+go run ./bench_write.go \
+  -url "${PDAG_URL}/api/v1/servers/localhost/zones/bench-write.example.com." \
+  -key "${API_KEY}" \
+  -zone "bench-write.example.com." \
+  -op add \
+  -duration "$DURATION" \
+  -concurrency "$CONCURRENCY"
+
+# ── Benchmark: PATCH delete rrsets (write path) ──────────────────
+echo ""
+echo "══════════════════════════════════════════════════"
+echo "  PATCH delete rrsets from bench-write.example.com."
+echo "  Duration: ${DURATION}  Concurrency: ${CONCURRENCY}"
+echo "══════════════════════════════════════════════════"
+go run ./bench_write.go \
+  -url "${PDAG_URL}/api/v1/servers/localhost/zones/bench-write.example.com." \
+  -key "${API_KEY}" \
+  -zone "bench-write.example.com." \
+  -op delete \
+  -duration "$DURATION" \
+  -concurrency "$CONCURRENCY"
+
 # ── Benchmark: Authz denial (valid key, plugin denies) ───────────
 echo "==> Creating read_zones-only key for authz denial..."
 DENY_JSON=$(curl -sf -X POST "${ADMIN_URL}/admin/keys" \
