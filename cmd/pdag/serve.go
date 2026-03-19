@@ -71,7 +71,7 @@ func runServe() error {
 	}
 	defer closeStore()
 
-	auditPub, reopenAudit, closeAudit, err := openAuditLog(cfg.AuditLog)
+	auditPub, reopenAudit, closeAudit, err := openAuditLog(cfg.AuditLog, cfg.AuditBufferSize)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,13 @@ func runServe() error {
 
 func openKeyStore(dsn string) (store.KeyStore, func(), error) {
 	if dsn != "" {
-		migrationsPath, _ := filepath.Abs("migrations")
+		migrationsPath, err := filepath.Abs("migrations")
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("resolve migrations path: %w", err)
+		}
+		if _, statErr := os.Stat(migrationsPath); statErr != nil {
+			return nil, func() {}, fmt.Errorf("migrations directory %q: %w", migrationsPath, statErr)
+		}
 		pg, err := postgres.NewStore(dsn, migrationsPath)
 		if err != nil {
 			return nil, func() {}, fmt.Errorf("open postgres store: %w", err)
@@ -139,13 +145,13 @@ func openKeyStore(dsn string) (store.KeyStore, func(), error) {
 	return mem, func() {}, nil
 }
 
-func openAuditLog(path string) (audit.Publisher, func() error, func(), error) {
+func openAuditLog(path string, bufSize int) (audit.Publisher, func() error, func(), error) {
 	if path == "" {
 		slog.Warn("no audit_log configured, audit logging disabled")
 		return audit.Noop(), func() error { return nil }, func() {}, nil
 	}
 
-	al, err := auditfile.NewLogger(path)
+	al, err := auditfile.NewLogger(path, bufSize)
 	if err != nil {
 		return nil, nil, func() {}, fmt.Errorf("open audit log: %w", err)
 	}
@@ -241,7 +247,14 @@ func newProxyServer(listenAddr string, maxBodySize int64, rl ratelimit.RateLimit
 	})))
 	mux.Handle("GET /readyz", probeChain(readinessCheck(keyStore, pluginMgr, lb)))
 
-	return &http.Server{Addr: listenAddr, Handler: mux}
+	return &http.Server{
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 }
 
 func newAdminServer(listenAddr, adminToken string, keygen admin.KeyGenerator, keyStore store.KeyStore) *http.Server {
