@@ -44,6 +44,7 @@ sequenceDiagram
     participant C as Client
     participant RID as RequestID
     participant MET as Metrics
+    participant TRC as Tracing
     participant AUD as AuditLog
     participant ATN as Authn (HMAC)
     participant RL as RateLimit
@@ -54,10 +55,12 @@ sequenceDiagram
 
     C->>RID: HTTP Request
     RID->>MET: + UUID in context
-    MET->>AUD: + StatusRecorder wraps response
-    AUD->>ATN: + authzResult ptr in context
+    MET->>TRC: + StatusRecorder wraps response
+    TRC->>AUD: + OTel span
+    AUD->>ATN: + authzResult ptr, bodyBytes ptr in context
     ATN->>ATN: Split X-API-Key on ":"
     ATN->>ATN: Lookup key in store
+    ATN->>ATN: Check allowed_cidrs (if set)
     ATN->>ATN: Verify HMAC-SHA256
     ATN->>RL: + Principal, KeyID, Roles in context
     RL->>RL: Check token bucket for principal
@@ -75,7 +78,7 @@ sequenceDiagram
     PX->>UP: Proxied request
     UP-->>PX: Response
     PX-->>AUD: Response (status code captured)
-    AUD->>AUD: Publish audit entry (async)
+    AUD->>AUD: Publish audit entry (async, +body if enabled)
     AUD-->>C: Response + X-Request-ID
 ```
 
@@ -112,3 +115,21 @@ graph TD
     RESULT -->|Any ALLOW| ALLOW[200 — Proxy to upstream]
     RESULT -->|All DENY| DENY[403 Forbidden]
 ```
+
+### Admin API Endpoints
+
+All endpoints require `Authorization: Bearer <admin_token>`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/admin/keys` | Create a new API key |
+| GET | `/admin/keys` | List keys (paginated, filterable by `?principal=` / `?role=`) |
+| GET | `/admin/keys/{id}` | Get a single key |
+| DELETE | `/admin/keys/{id}` | Delete a key |
+| DELETE | `/admin/keys/expired` | Purge all expired keys |
+| PATCH | `/admin/keys/{id}/disable` | Disable a key |
+| PATCH | `/admin/keys/{id}/enable` | Enable a key |
+| PUT | `/admin/keys/{id}/roles` | Replace roles |
+| POST | `/admin/keys/{id}/rotate` | Rotate secret (returns new secret once) |
+| PUT | `/admin/keys/{id}/allowed-cidrs` | Replace IP allowlist (CIDRs validated) |
+| PATCH | `/admin/keys/{id}/expiry` | Set or clear expiry |
