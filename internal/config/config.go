@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -236,14 +235,14 @@ func (c *Config) validate() error {
 		}
 	}
 
-	// Warn on port conflicts (non-fatal).
+	// Port conflicts.
 	addrs := map[string]string{
 		c.Listen:         "listen",
 		c.Metrics.Listen: "metrics.listen",
 		c.Admin.Listen:   "admin.listen",
 	}
 	if len(addrs) < 3 {
-		slog.Warn("two or more servers share the same listen address — this will cause a bind failure at runtime")
+		return fmt.Errorf("two or more servers share the same listen address: check listen, metrics.listen, and admin.listen")
 	}
 
 	// MaxBodySize.

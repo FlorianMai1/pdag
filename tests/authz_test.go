@@ -71,6 +71,26 @@ func TestCreateKeyWithNoRolesReturns400(t *testing.T) {
 		Status(http.StatusBadRequest)
 }
 
+func TestUpdateRolesToEmptyReturns400(t *testing.T) {
+	keyID, secret := createTestKey(t, "empty-roles-update", []string{"read_zones"})
+
+	// Try to update roles to empty.
+	adminClient(t).PUT("/admin/keys/{id}/roles").
+		WithPath("id", keyID).
+		WithHeader("Authorization", "Bearer e2e-admin-token").
+		WithJSON(map[string]any{
+			"roles": []string{},
+		}).
+		Expect().
+		Status(http.StatusBadRequest)
+
+	// Verify the key still works with original roles.
+	proxyClient(t).GET("/api/v1/servers/localhost/zones").
+		WithHeader("X-API-Key", keyID+":"+secret).
+		Expect().
+		Status(http.StatusOK)
+}
+
 func TestMultipleRolesFirstAllowWins(t *testing.T) {
 	// A user with both read_zones and admin roles should be allowed for GET
 	// (either plugin can ALLOW).

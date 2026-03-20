@@ -563,6 +563,115 @@ func TestRateLimitOnAdmin(t *testing.T) {
 	}
 }
 
+func TestUpdateRolesEmptyRejected(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	// Create a key.
+	body := `{"principal":"alice","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &created)
+
+	// Update roles to empty should be rejected.
+	req = httptest.NewRequest("PUT", "/admin/keys/"+created.ID+"/roles", bytes.NewBufferString(`{"roles":[]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("empty roles update: status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	// Verify original roles unchanged.
+	k, _ := mgr.GetByID(context.Background(), created.ID)
+	if len(k.Roles) != 1 || k.Roles[0] != "admin" {
+		t.Errorf("roles should be unchanged, got %v", k.Roles)
+	}
+}
+
+func TestPrincipalTooLong(t *testing.T) {
+	mgr := memory.NewStore()
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	longPrincipal := strings.Repeat("a", 300)
+	body := fmt.Sprintf(`{"principal":%q,"roles":["admin"]}`, longPrincipal)
+	req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("long principal: status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+// auditFailStore wraps a KeyManager and makes AuditKeyEvent always fail.
+type auditFailStore struct {
+	store.KeyManager
+}
+
+func (s *auditFailStore) AuditKeyEvent(_ context.Context, _, _, _ string, _, _ any) error {
+	return fmt.Errorf("audit backend unavailable")
+}
+
+func TestAuditFailureBlocksCreate(t *testing.T) {
+	mgr := &auditFailStore{memory.NewStore()}
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	body := `{"principal":"alice","roles":["admin"]}`
+	req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("create with audit failure: status = %d, want %d; body: %s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+}
+
+func TestAuditFailureBlocksDelete(t *testing.T) {
+	inner := memory.NewStore()
+	inner.Create(context.Background(), &store.KeyRecord{
+		ID: "k_del", Principal: "alice", Roles: []string{"admin"}, Enabled: true,
+	})
+	mgr := &auditFailStore{inner}
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	req := httptest.NewRequest("DELETE", "/admin/keys/k_del", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("delete with audit failure: status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAuditFailureBlocksRotate(t *testing.T) {
+	inner := memory.NewStore()
+	inner.Create(context.Background(), &store.KeyRecord{
+		ID: "k_rot", KeyHash: "h", HmacKeyID: "v1", Principal: "alice",
+		Roles: []string{"admin"}, Enabled: true,
+	})
+	mgr := &auditFailStore{inner}
+	h := admin.Handler(mgr, testKeygen, testToken)
+
+	req := httptest.NewRequest("POST", "/admin/keys/k_rot/rotate", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("rotate with audit failure: status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
 func TestRateLimitPerIP(t *testing.T) {
 	h := newFullHandler()
 

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gavv/httpexpect/v2"
@@ -196,6 +197,19 @@ func TestAdminAPIUpdateAllowedCIDRsInvalidCIDR(t *testing.T) {
 		WithHeader("Authorization", "Bearer e2e-admin-token").
 		WithJSON(map[string]any{
 			"allowed_cidrs": []string{"not-a-cidr"},
+		}).
+		Expect().
+		Status(http.StatusBadRequest)
+}
+
+func TestAdminAPIPrincipalLengthLimit(t *testing.T) {
+	longPrincipal := strings.Repeat("a", 300)
+
+	adminClient(t).POST("/admin/keys").
+		WithHeader("Authorization", "Bearer e2e-admin-token").
+		WithJSON(map[string]any{
+			"principal": longPrincipal,
+			"roles":     []string{"admin"},
 		}).
 		Expect().
 		Status(http.StatusBadRequest)

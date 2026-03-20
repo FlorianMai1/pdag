@@ -293,6 +293,19 @@ db:
 	}
 }
 
+func TestValidatePortConflict(t *testing.T) {
+	cfg := validBaseConfig(`
+listen: ":8080"
+metrics:
+  listen: ":8080"
+`)
+	cfgFile := writeConfig(t, cfg)
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error for duplicate listen addresses")
+	}
+}
+
 func TestCurrentHmacSecret(t *testing.T) {
 	cfg := &Config{
 		HmacSecrets: []HmacSecret{

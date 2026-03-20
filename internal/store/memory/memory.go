@@ -162,7 +162,7 @@ func (m *Store) SetEnabled(_ context.Context, id string, enabled bool) error {
 	defer m.mu.Unlock()
 	rec, ok := m.keys[id]
 	if !ok {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	rec.Enabled = enabled
 	rec.UpdatedAt = time.Now()
@@ -174,7 +174,7 @@ func (m *Store) SetRoles(_ context.Context, id string, roles []string) error {
 	defer m.mu.Unlock()
 	rec, ok := m.keys[id]
 	if !ok {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	rec.Roles = make([]string, len(roles))
 	copy(rec.Roles, roles)
@@ -200,7 +200,7 @@ func (m *Store) UpdateHash(_ context.Context, id string, newHash string, newHmac
 	defer m.mu.Unlock()
 	rec, ok := m.keys[id]
 	if !ok {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	rec.KeyHash = newHash
 	rec.HmacKeyID = newHmacKeyID
@@ -212,7 +212,7 @@ func (m *Store) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.keys[id]; !ok {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	delete(m.keys, id)
 	return nil
@@ -223,7 +223,7 @@ func (m *Store) SetExpiresAt(_ context.Context, id string, expiresAt *time.Time)
 	defer m.mu.Unlock()
 	rec, ok := m.keys[id]
 	if !ok {
-		return fmt.Errorf("key %q not found", id)
+		return fmt.Errorf("key %q: %w", id, store.ErrKeyNotFound)
 	}
 	if expiresAt != nil {
 		t := *expiresAt

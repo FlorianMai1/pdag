@@ -2,6 +2,7 @@ package tests
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -67,4 +68,28 @@ func TestProxyPATCHZone(t *testing.T) {
 		Expect().
 		Status(http.StatusOK).
 		Body().Contains("e2e-test.example.com.")
+}
+
+func TestProxyMaxBodySize(t *testing.T) {
+	keyID, secret := createTestKey(t, "maxbody-test", []string{"admin"})
+
+	// Default max_body_size is 1 MiB. Send a body larger than that.
+	oversized := strings.Repeat("x", 1<<20+1)
+
+	proxyClient(t).PATCH("/api/v1/servers/localhost/zones/example.com.").
+		WithHeader("X-API-Key", keyID+":"+secret).
+		WithHeader("Content-Type", "application/json").
+		WithBytes([]byte(oversized)).
+		Expect().
+		Status(http.StatusRequestEntityTooLarge)
+}
+
+func TestProxyUpstreamErrorPassthrough(t *testing.T) {
+	keyID, secret := createTestKey(t, "error-passthrough", []string{"admin"})
+
+	// Request a zone that doesn't exist — PowerDNS returns 422.
+	proxyClient(t).GET("/api/v1/servers/localhost/zones/nonexistent.invalid.").
+		WithHeader("X-API-Key", keyID+":"+secret).
+		Expect().
+		Status(http.StatusUnprocessableEntity)
 }

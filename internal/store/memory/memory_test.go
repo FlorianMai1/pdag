@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -292,6 +293,33 @@ func TestListFiltered(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "k1" {
 		t.Errorf("alice limit=1 offset=1: got %v", got)
+	}
+}
+
+func TestErrKeyNotFoundWrapping(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore()
+
+	for _, tc := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"SetEnabled", func() error { return s.SetEnabled(ctx, "missing", true) }},
+		{"SetRoles", func() error { return s.SetRoles(ctx, "missing", []string{"admin"}) }},
+		{"UpdateHash", func() error { return s.UpdateHash(ctx, "missing", "h", "v1") }},
+		{"Delete", func() error { return s.Delete(ctx, "missing") }},
+		{"SetExpiresAt", func() error { return s.SetExpiresAt(ctx, "missing", nil) }},
+		{"SetAllowedCIDRs", func() error { return s.SetAllowedCIDRs(ctx, "missing", nil) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fn()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, store.ErrKeyNotFound) {
+				t.Errorf("errors.Is(err, ErrKeyNotFound) = false; err = %v", err)
+			}
+		})
 	}
 }
 

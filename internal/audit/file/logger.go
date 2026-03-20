@@ -101,6 +101,8 @@ func (l *Logger) flushLoop() {
 			if l.file != nil {
 				l.file.Close()
 			}
+			l.file = nil
+			l.enc = nil
 			if err := l.open(); err != nil {
 				slog.Error("reopen audit log failed", "error", err)
 			}
@@ -122,6 +124,10 @@ func (l *Logger) flushLoop() {
 func (l *Logger) writeEntry(e audit.Entry) {
 	l.fileMu.Lock()
 	defer l.fileMu.Unlock()
+	if l.enc == nil {
+		metrics.AuditWriteErrorsTotal.Inc()
+		return
+	}
 	if err := l.enc.Encode(e); err != nil {
 		slog.Error("audit log write failed", "request_id", e.RequestID, "error", err)
 		metrics.AuditWriteErrorsTotal.Inc()

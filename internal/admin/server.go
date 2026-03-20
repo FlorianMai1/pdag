@@ -20,6 +20,7 @@ import (
 )
 
 const adminMaxBodyBytes = 64 * 1024 // 64 KiB
+const maxPrincipalLen = 256
 
 // NewServer returns an http.Server for the admin API on the given address.
 func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToken string) *http.Server {
@@ -145,6 +146,8 @@ func purgeExpired(mgr store.KeyManager) http.HandlerFunc {
 			"deleted": n,
 		}); err != nil {
 			slog.Error("audit purge expired", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		slog.Info("purged expired keys", "count", n)
 		w.Header().Set("Content-Type", "application/json")
@@ -175,6 +178,10 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 		}
 		if req.Principal == "" {
 			http.Error(w, "principal is required", http.StatusBadRequest)
+			return
+		}
+		if len(req.Principal) > maxPrincipalLen {
+			http.Error(w, fmt.Sprintf("principal exceeds maximum length of %d", maxPrincipalLen), http.StatusBadRequest)
 			return
 		}
 		if len(req.Roles) == 0 {
@@ -228,6 +235,8 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 			"roles":     req.Roles,
 		}); err != nil {
 			slog.Error("audit key create", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -322,6 +331,8 @@ func deleteKey(mgr store.KeyManager) http.HandlerFunc {
 		}
 		if err := mgr.AuditKeyEvent(r.Context(), id, "delete", "admin_api", nil, nil); err != nil {
 			slog.Error("audit key delete", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -347,6 +358,8 @@ func setEnabled(mgr store.KeyManager, enabled bool) http.HandlerFunc {
 			"enabled": enabled,
 		}); err != nil {
 			slog.Error("audit key "+action, "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -389,6 +402,8 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 			"expires_at": expiresAt,
 		}); err != nil {
 			slog.Error("audit key update_expiry", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -437,6 +452,8 @@ func rotateKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 			map[string]any{"hmac_key_id": keygen.HmacKeyID()},
 		); err != nil {
 			slog.Error("audit key rotate", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -461,6 +478,10 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		if len(req.Roles) == 0 {
+			http.Error(w, "at least one role is required", http.StatusBadRequest)
+			return
+		}
 
 		if err := mgr.SetRoles(r.Context(), id, req.Roles); err != nil {
 			if errors.Is(err, store.ErrKeyNotFound) {
@@ -475,6 +496,8 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 			"roles": req.Roles,
 		}); err != nil {
 			slog.Error("audit key update_roles", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -515,6 +538,8 @@ func updateAllowedCIDRs(mgr store.KeyManager) http.HandlerFunc {
 			"allowed_cidrs": req.AllowedCIDRs,
 		}); err != nil {
 			slog.Error("audit key update_allowed_cidrs", "error", err)
+			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
