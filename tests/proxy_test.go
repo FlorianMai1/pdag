@@ -87,9 +87,10 @@ func TestProxyMaxBodySize(t *testing.T) {
 func TestProxyUpstreamErrorPassthrough(t *testing.T) {
 	keyID, secret := createTestKey(t, "error-passthrough", []string{"admin"})
 
-	// Request a zone that doesn't exist — PowerDNS returns 422.
+	// Request a zone that doesn't exist — PowerDNS returns 404.
+	// Verify the upstream error status is forwarded as-is.
 	proxyClient(t).GET("/api/v1/servers/localhost/zones/nonexistent.invalid.").
 		WithHeader("X-API-Key", keyID+":"+secret).
 		Expect().
-		Status(http.StatusUnprocessableEntity)
+		Status(http.StatusNotFound)
 }
