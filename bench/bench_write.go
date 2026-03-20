@@ -7,13 +7,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"context"
 	"io"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,9 +50,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	for range *concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for time.Now().Before(deadline) {
 				n := counter.Add(1)
 				name := fmt.Sprintf("bw%d.%s", n, *zone)
@@ -106,13 +104,13 @@ func main() {
 					statuses.Store(key, int64(1))
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
 	// Compute stats.
 	mu.Lock()
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	slices.Sort(latencies)
 	n := len(latencies)
 	mu.Unlock()
 
