@@ -37,7 +37,11 @@ func (a *TextArray) Scan(src any) error {
 	}
 
 	inner := s[1 : len(s)-1]
-	*a = parseArrayElements(inner)
+	elems, err := parseArrayElements(inner)
+	if err != nil {
+		return err
+	}
+	*a = elems
 	return nil
 }
 
@@ -53,11 +57,29 @@ func (a TextArray) Value() (driver.Value, error) {
 	return "{" + strings.Join(elems, ",") + "}", nil
 }
 
-func parseArrayElements(s string) []string {
+func parseArrayElements(s string) ([]string, error) {
 	var result []string
 	var current strings.Builder
 	inQuote := false
 	escaped := false
+	quoted := false // whether the current element contained a quoted section
+
+	flush := func() error {
+		val := current.String()
+		if !quoted {
+			// PostgreSQL trims surrounding whitespace on unquoted elements, and
+			// an unquoted NULL denotes a SQL NULL — unsupported by these NOT NULL
+			// columns (roles, allowed_cidrs).
+			val = strings.TrimSpace(val)
+			if strings.EqualFold(val, "NULL") {
+				return fmt.Errorf("pgarray: NULL array elements are not supported")
+			}
+		}
+		result = append(result, val)
+		current.Reset()
+		quoted = false
+		return nil
+	}
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
@@ -71,15 +93,19 @@ func parseArrayElements(s string) []string {
 			escaped = true
 		case c == '"':
 			inQuote = !inQuote
+			quoted = true
 		case c == ',' && !inQuote:
-			result = append(result, current.String())
-			current.Reset()
+			if err := flush(); err != nil {
+				return nil, err
+			}
 		default:
 			current.WriteByte(c)
 		}
 	}
-	result = append(result, current.String())
-	return result
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func quoteArrayElement(s string) string {

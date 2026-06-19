@@ -57,7 +57,15 @@ func openKeyEnv(fs *flag.FlagSet, configPath *string) (*keyEnv, func(), error) {
 		return nil, func() {}, err
 	}
 
-	migrationsPath, _ := filepath.Abs("migrations")
+	if cfg.DB.DSN == "" {
+		return nil, func() {}, fmt.Errorf("key management requires a database: set db.dsn")
+	}
+
+	migrationsPath, err := filepath.Abs("migrations")
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("resolve migrations path: %w", err)
+	}
+
 	pg, err := postgres.NewStore(cfg.DB.DSN, migrationsPath)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("open store: %w", err)

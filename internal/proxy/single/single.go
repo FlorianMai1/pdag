@@ -1,10 +1,14 @@
 package single
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 
+	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/proxy"
 )
 
@@ -48,6 +52,16 @@ func New(upstreamURL string, apiKey string) (*Backend, error) {
 
 			pr.SetURL(target)
 			pr.Out.Host = target.Host
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// A client-side cancellation is not an upstream failure.
+			if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+				slog.Debug("upstream request canceled by client", "error", err)
+				return
+			}
+			slog.Warn("upstream request failed", "error", err)
+			metrics.UpstreamErrorsTotal.WithLabelValues("transport").Inc()
+			http.Error(w, "bad gateway", http.StatusBadGateway)
 		},
 	}
 
