@@ -99,6 +99,7 @@ func runServe() error {
 	hmacService := hmac.NewHmacService(hmacSecrets)
 
 	limiter := openRateLimiter(cfg)
+	defer limiter.Close()
 
 	resolver, err := clientip.New(cfg.TrustedProxies)
 	if err != nil {

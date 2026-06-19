@@ -22,7 +22,7 @@ func Middleware(limiter RateLimiter) func(http.Handler) http.Handler {
 			}
 
 			if !limiter.Allow(principal) {
-				metrics.RateLimitedTotal.WithLabelValues(principal).Inc()
+				metrics.RateLimitedTotal.Inc()
 				w.Header().Set("Retry-After", "1")
 				http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 				return

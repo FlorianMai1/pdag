@@ -80,11 +80,12 @@ var (
 	}, []string{"plugin", "from", "to"})
 
 	// Rate limiting metrics
-	RateLimitedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	// Aggregate (no per-principal label) to keep cardinality bounded.
+	RateLimitedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "pdag",
 		Name:      "rate_limited_total",
 		Help:      "Requests rejected by rate limiting.",
-	}, []string{"principal"})
+	})
 
 	// Audit metrics
 	AuditWriteErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{

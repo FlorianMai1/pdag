@@ -3,7 +3,6 @@ package token
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/mai/pdag/internal/ratelimit"
@@ -12,14 +11,16 @@ import (
 // Compile-time interface check.
 var _ ratelimit.RateLimiter = (*Limiter)(nil)
 
+const staleThreshold = 5 * time.Minute
+
 // Limiter tracks per-principal token buckets.
 // Each bucket has its own mutex so different principals never contend.
 type Limiter struct {
-	buckets  sync.Map     // map[string]*bucket
-	rate     float64      // tokens per second
-	burst    int          // max tokens (bucket capacity)
-	cleanupN int64        // clean up every N calls to Allow
-	calls    atomic.Int64 // total Allow calls (lock-free counter)
+	buckets sync.Map // map[string]*bucket
+	rate    float64  // tokens per second
+	burst   int      // max tokens (bucket capacity)
+	stop    chan struct{}
+	stopped sync.Once
 }
 
 type bucket struct {
@@ -34,13 +35,22 @@ type Config struct {
 	Burst int     // maximum burst size per principal
 }
 
-// New creates a new per-principal token bucket rate limiter.
+// New creates a new per-principal token bucket rate limiter and starts a
+// background goroutine that evicts idle buckets on a fixed cadence (decoupled
+// from request volume). Call Close to stop it.
 func New(cfg Config) *Limiter {
-	return &Limiter{
-		rate:     cfg.Rate,
-		burst:    cfg.Burst,
-		cleanupN: 1000,
+	l := &Limiter{
+		rate:  cfg.Rate,
+		burst: cfg.Burst,
+		stop:  make(chan struct{}),
 	}
+	go l.cleanupLoop()
+	return l
+}
+
+// Close stops the background cleanup goroutine. Safe to call more than once.
+func (l *Limiter) Close() {
+	l.stopped.Do(func() { close(l.stop) })
 }
 
 // Allow checks whether the principal is within their rate limit.
@@ -48,16 +58,14 @@ func New(cfg Config) *Limiter {
 func (l *Limiter) Allow(principal string) bool {
 	now := time.Now()
 
-	n := l.calls.Add(1)
-	if n%l.cleanupN == 0 {
-		l.cleanup(now)
+	// Fast path: avoid allocating a bucket on every call for known principals.
+	val, ok := l.buckets.Load(principal)
+	if !ok {
+		val, _ = l.buckets.LoadOrStore(principal, &bucket{
+			tokens:    float64(l.burst),
+			lastCheck: now,
+		})
 	}
-
-	newBucket := &bucket{
-		tokens:    float64(l.burst),
-		lastCheck: now,
-	}
-	val, _ := l.buckets.LoadOrStore(principal, newBucket)
 	b := val.(*bucket)
 
 	b.mu.Lock()
@@ -79,9 +87,24 @@ func (l *Limiter) Allow(principal string) bool {
 	return true
 }
 
-// cleanup removes stale buckets that have been idle for a while.
+// cleanupLoop periodically evicts idle buckets until Close is called. Running
+// on a timer (not per Allow call) decouples eviction from request volume and
+// keeps the full-map scan off the hot path.
+func (l *Limiter) cleanupLoop() {
+	ticker := time.NewTicker(staleThreshold / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-l.stop:
+			return
+		case now := <-ticker.C:
+			l.cleanup(now)
+		}
+	}
+}
+
+// cleanup removes buckets idle longer than staleThreshold.
 func (l *Limiter) cleanup(now time.Time) {
-	staleThreshold := 5 * time.Minute
 	l.buckets.Range(func(key, val any) bool {
 		b := val.(*bucket)
 		b.mu.Lock()

@@ -83,27 +83,25 @@ func TestAllowBurstCap(t *testing.T) {
 
 func TestCleanup(t *testing.T) {
 	l := New(Config{Rate: 10, Burst: 5})
-	l.cleanupN = 1 // clean up every call
+	defer l.Close()
 
 	l.Allow("stale")
+	l.Allow("fresh")
 
-	// Force the bucket to look stale.
+	// Force one bucket to look idle.
 	val, _ := l.buckets.Load("stale")
 	b := val.(*bucket)
 	b.mu.Lock()
 	b.lastCheck = time.Now().Add(-10 * time.Minute)
 	b.mu.Unlock()
 
-	// Next call triggers cleanup.
-	l.Allow("fresh")
+	// Time-based cleanup evicts idle buckets regardless of request volume.
+	l.cleanup(time.Now())
 
-	_, staleExists := l.buckets.Load("stale")
-	_, freshExists := l.buckets.Load("fresh")
-
-	if staleExists {
+	if _, staleExists := l.buckets.Load("stale"); staleExists {
 		t.Error("stale bucket should have been cleaned up")
 	}
-	if !freshExists {
+	if _, freshExists := l.buckets.Load("fresh"); !freshExists {
 		t.Error("fresh bucket should still exist")
 	}
 }
