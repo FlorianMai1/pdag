@@ -188,14 +188,20 @@ func Load(configPath string) (*Config, error) {
 // resolveSecretFiles reads _file fields and populates the corresponding value fields.
 func (c *Config) resolveSecretFiles() error {
 	resolve := func(value *string, filePath, name string) error {
-		if filePath != "" && *value == "" {
-			warnIfPermissive(filePath, name)
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			*value = strings.TrimSpace(string(data))
+		if filePath == "" {
+			return nil
 		}
+		if *value != "" {
+			// Ambiguous config: both an inline secret and a file are set. Fail
+			// fast rather than silently picking one.
+			return fmt.Errorf("%s is set but the inline value is also set; specify only one", name)
+		}
+		warnIfPermissive(filePath, name)
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		*value = trimSecret(data)
 		return nil
 	}
 
@@ -208,17 +214,18 @@ func (c *Config) resolveSecretFiles() error {
 		}
 	}
 	for i := range c.HmacSecrets {
-		if c.HmacSecrets[i].SecretFile != "" && c.HmacSecrets[i].Secret == "" {
-			name := fmt.Sprintf("hmac_secrets[%d].secret_file", i)
-			warnIfPermissive(c.HmacSecrets[i].SecretFile, name)
-			data, err := os.ReadFile(c.HmacSecrets[i].SecretFile)
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			c.HmacSecrets[i].Secret = strings.TrimSpace(string(data))
+		if err := resolve(&c.HmacSecrets[i].Secret, c.HmacSecrets[i].SecretFile, fmt.Sprintf("hmac_secrets[%d].secret_file", i)); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// trimSecret strips only the trailing line terminator a file editor appends,
+// not all surrounding whitespace — a secret may legitimately contain leading or
+// trailing spaces.
+func trimSecret(data []byte) string {
+	return strings.TrimRight(string(data), "\r\n")
 }
 
 // warnIfPermissive logs a warning when a secret file is readable by group or

@@ -12,7 +12,7 @@ func TestResolveSecretFiles(t *testing.T) {
 
 	// Write secret files.
 	apiKeyFile := filepath.Join(dir, "api_key")
-	os.WriteFile(apiKeyFile, []byte("  secret-from-file\n"), 0600)
+	os.WriteFile(apiKeyFile, []byte("secret-from-file\n"), 0600)
 
 	adminFile := filepath.Join(dir, "admin_token")
 	os.WriteFile(adminFile, []byte("admin-from-file"), 0600)
@@ -50,10 +50,10 @@ db:
 	}
 }
 
-func TestResolveSecretFileInlineWins(t *testing.T) {
+func TestResolveSecretFileDualSetErrors(t *testing.T) {
 	dir := t.TempDir()
 
-	// Even with a file present, inline value should not be overridden.
+	// Setting both an inline value and a file is ambiguous → fail fast.
 	apiKeyFile := filepath.Join(dir, "api_key")
 	os.WriteFile(apiKeyFile, []byte("file-value"), 0600)
 
@@ -71,13 +71,42 @@ db:
   dsn: "postgres://localhost/test"
 `), 0644)
 
+	_, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected error when both inline value and *_file are set")
+	}
+	if !strings.Contains(err.Error(), "api_key_file") {
+		t.Errorf("error should mention api_key_file, got: %s", err)
+	}
+}
+
+func TestResolveSecretFileTrimsOnlyNewline(t *testing.T) {
+	dir := t.TempDir()
+
+	// A secret with significant surrounding spaces must be preserved; only the
+	// trailing newline is stripped.
+	hmacFile := filepath.Join(dir, "hmac_secret")
+	os.WriteFile(hmacFile, []byte("  spaced-secret-long  \n"), 0600)
+
+	cfgFile := filepath.Join(dir, "pdag.yaml")
+	os.WriteFile(cfgFile, []byte(`
+upstreams:
+  backends:
+    - url: "http://pdns:8081"
+      api_key: "key"
+hmac_secrets:
+  - id: "v1"
+    secret_file: "`+hmacFile+`"
+db:
+  dsn: "postgres://localhost/test"
+`), 0644)
+
 	cfg, err := Load(cfgFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if cfg.Upstreams.Backends[0].APIKey != "inline-value" {
-		t.Errorf("inline value should win, got %q", cfg.Upstreams.Backends[0].APIKey)
+	if cfg.HmacSecrets[0].Secret != "  spaced-secret-long  " {
+		t.Errorf("secret = %q, want surrounding spaces preserved", cfg.HmacSecrets[0].Secret)
 	}
 }
 

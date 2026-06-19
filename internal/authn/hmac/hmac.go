@@ -28,6 +28,11 @@ func (h *HmacService) Authenticate(secret string, rec *store.KeyRecord) error {
 	if !ok {
 		return fmt.Errorf("hmac secret %q not found", rec.HmacKeyID)
 	}
+	if hmacSecret == "" {
+		// Don't verify against an empty HMAC key — fail as an internal error so
+		// the security boundary doesn't depend solely on config-package checks.
+		return fmt.Errorf("hmac secret %q is empty", rec.HmacKeyID)
+	}
 	match, err := h.verify(secret, rec.KeyHash, hmacSecret)
 	if err != nil {
 		return fmt.Errorf("verify key hash: %w", err)
