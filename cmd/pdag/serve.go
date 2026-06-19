@@ -20,6 +20,7 @@ import (
 	"github.com/mai/pdag/internal/authn/hmac"
 	"github.com/mai/pdag/internal/authz"
 	authzplugin "github.com/mai/pdag/internal/authz/plugin"
+	"github.com/mai/pdag/internal/clientip"
 	"github.com/mai/pdag/internal/config"
 	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/middleware"
@@ -71,7 +72,7 @@ func runServe() error {
 	}
 	defer closeStore()
 
-	auditPub, reopenAudit, closeAudit, err := openAuditLog(cfg.AuditLog, cfg.AuditBufferSize)
+	auditPub, reopenAudit, closeAudit, err := openAuditLog(cfg.AuditLog, cfg.AuditBufferSize, cfg.AuditEnqueueTimeout)
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,16 @@ func runServe() error {
 
 	limiter := openRateLimiter(cfg)
 
-	proxySrv := newProxyServer(cfg.Listen, cfg.MaxBodySize, cfg.AuditLogBody, limiter, backend, keyStore, auditPub, pluginMgr, hmacService)
+	resolver, err := clientip.New(cfg.TrustedProxies)
+	if err != nil {
+		return fmt.Errorf("build client IP resolver: %w", err)
+	}
+	if len(cfg.TrustedProxies) > 0 {
+		slog.Info("trusted proxies configured for client IP resolution", "count", len(cfg.TrustedProxies))
+	}
+
+	auditOpts := audit.Options{LogBody: cfg.AuditLogBody, FailClosed: cfg.AuditFailClosed}
+	proxySrv := newProxyServer(cfg.Listen, cfg.MaxBodySize, auditOpts, limiter, backend, keyStore, auditPub, pluginMgr, hmacService, resolver)
 
 	// Extract current HMAC secret for admin key generation.
 	currentHmac, err := cfg.CurrentHmacSecret()
@@ -157,13 +167,13 @@ func openKeyStore(dsn string) (store.KeyStore, func(), error) {
 	return mem, func() {}, nil
 }
 
-func openAuditLog(path string, bufSize int) (audit.Publisher, func() error, func(), error) {
+func openAuditLog(path string, bufSize int, enqueueTimeout time.Duration) (audit.Publisher, func() error, func(), error) {
 	if path == "" {
 		slog.Warn("no audit_log configured, audit logging disabled")
 		return audit.Noop(), func() error { return nil }, func() {}, nil
 	}
 
-	al, err := auditfile.NewLogger(path, bufSize)
+	al, err := auditfile.NewLogger(path, bufSize, enqueueTimeout)
 	if err != nil {
 		return nil, nil, func() {}, fmt.Errorf("open audit log: %w", err)
 	}
@@ -233,13 +243,13 @@ func openPluginManager(cfg *config.Config) (*authzplugin.Manager, error) {
 	return mgr, nil
 }
 
-func newProxyServer(listenAddr string, maxBodySize int64, auditLogBody bool, rl ratelimit.RateLimiter, lb proxy.Backend, keyStore store.KeyStore, auditPub audit.Publisher, pluginMgr *authzplugin.Manager, authnService authn.Service) *http.Server {
+func newProxyServer(listenAddr string, maxBodySize int64, auditOpts audit.Options, rl ratelimit.RateLimiter, lb proxy.Backend, keyStore store.KeyStore, auditPub audit.Publisher, pluginMgr *authzplugin.Manager, authnService authn.Service, resolver *clientip.Resolver) *http.Server {
 	handler := middleware.Chain(
 		middleware.RequestID,
 		metrics.Middleware,
 		tracing.Middleware,
-		audit.Middleware(auditPub, auditLogBody),
-		hmac.Middleware(keyStore, authnService),
+		audit.Middleware(auditPub, auditOpts, resolver),
+		hmac.Middleware(keyStore, authnService, resolver),
 		ratelimit.Middleware(rl),
 		middleware.BodyBuffer(maxBodySize),
 		authz.Middleware(pluginMgr),

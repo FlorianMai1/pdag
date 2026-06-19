@@ -105,6 +105,12 @@ var (
 		Help:      "Audit log entries dropped due to full buffer or closed logger.",
 	})
 
+	AuditReopenFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pdag",
+		Name:      "audit_reopen_failures_total",
+		Help:      "Audit log reopen (SIGHUP) failures; the previous file is kept so no entries are lost.",
+	})
+
 	// Operational metrics
 	SighupTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "pdag",

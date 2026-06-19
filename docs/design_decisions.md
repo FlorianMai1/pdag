@@ -35,6 +35,19 @@ All client-supplied headers are stripped from the outbound request to prevent he
 - **Application log** (stderr, `slog`) — operational: startup, config reload, plugin lifecycle, circuit breaker transitions, errors. `SanitizeHeaders()` redacts `X-Api-Key` values before any log output.
 - **Audit log** (dedicated JSON lines file) — one structured entry per request for compliance/forensics. Logged after proxying so the upstream status code is available. Reopened on SIGHUP for log rotation.
 
+### Audit reopen is fail-safe (open-new-then-swap)
+
+On SIGHUP the audit logger opens the new file **before** swapping, and keeps writing to the previous file if the open fails (e.g. logrotate has not yet recreated the directory, or the disk is full). This prevents a single failed rotation from causing a silent, indefinite audit blackout. Reopen failures are counted in `audit_reopen_failures_total`.
+
+### Audit back-pressure: bounded-blocking by default, opt-in fail-closed
+
+Audit entries are written asynchronously through a bounded in-memory buffer (`audit_buffer_size`), and the entry is published *after* the upstream call (so the status code is known). Two policies govern what happens when the buffer is saturated (slow disk, rotation stall):
+
+- **Default (fail-open, availability-leaning):** `Publish` blocks up to `audit_enqueue_timeout` (default 250ms) waiting for buffer space — absorbing transient back-pressure — and only then drops the entry, incrementing `audit_dropped_total`. The request itself always succeeds. Alert on `audit_dropped_total`.
+- **`audit_fail_closed: true` (compliance-leaning):** a buffer slot is **reserved before the upstream call**. If no slot can be acquired within `audit_enqueue_timeout`, the request is rejected with **503** and the upstream mutation never happens — guaranteeing no audited action is forwarded without a durable audit record. The deliberate tradeoff: a *sustained* audit-write outage degrades availability (mutating traffic gets 503s) rather than auditability.
+
+Fail-closed is opt-in because the right tradeoff is deployment-specific; the reservation is implemented via a counting semaphore sized to the buffer (`internal/audit` `Reserver`), so a reserved entry is guaranteed to be enqueueable.
+
 ### Fail fast on invalid config
 
 PDAG validates all configuration at startup and refuses to start if anything is invalid. This includes listen address format, `MaxBodySize > 0`, HMAC secret minimum length (16 bytes), circuit breaker thresholds, rate limit values when enabled, health check `timeout < interval` for multi-backend setups, and non-empty DSN when using postgres. Port conflicts between proxy/metrics/admin produce a warning. The principle: a bad config should be caught at deploy time, not as a mysterious runtime failure.
@@ -57,4 +70,8 @@ When `audit_log_body: true` is set, the buffered request body is embedded in aud
 
 ### IP allowlisting per key
 
-Each key can have an optional `allowed_cidrs` list. An empty list means no restriction (backwards compatible). When set, the authn middleware checks `r.RemoteAddr` against the CIDR list *before* HMAC verification — the cheaper check runs first. Invalid CIDRs in stored data are logged but skipped rather than failing auth (graceful degradation). CIDRs are validated at the admin API boundary when set via `PUT /admin/keys/{id}/allowed-cidrs`. The field uses the same `TEXT[]` PostgreSQL type and `TextArray` Go type as `roles`.
+Each key can have an optional `allowed_cidrs` list. An empty list means no restriction (backwards compatible). When set, the authn middleware checks the resolved client IP against the CIDR list *before* HMAC verification — the cheaper check runs first. Invalid CIDRs in stored data are logged but skipped rather than failing auth (graceful degradation). CIDRs are validated at the admin API boundary when set via `PUT /admin/keys/{id}/allowed-cidrs`. The field uses the same `TEXT[]` PostgreSQL type and `TextArray` Go type as `roles`.
+
+### Trusted-proxy-aware client IP resolution
+
+PDAG is meant to run behind a reverse proxy (nginx/caddy) for TLS, so `r.RemoteAddr` is the *proxy's* address, not the real client. If the allowlist were evaluated against `r.RemoteAddr` it would be a no-op control (it would match the proxy, not the client). The `internal/clientip` resolver fixes this: configure `trusted_proxies` with the proxy CIDRs, and when the immediate peer is a trusted proxy the client IP is taken from the right-most **untrusted** hop of `X-Forwarded-For`. When `trusted_proxies` is empty, or the peer is not trusted, the peer IP is used and `X-Forwarded-For` is ignored — so a client cannot spoof its source IP by setting the header. The same resolver is shared by the authn allowlist check and the audit log `source_ip`, so enforcement and logging always agree on the client.

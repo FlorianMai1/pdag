@@ -1,6 +1,7 @@
 package file
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func TestLoggerWritesJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestLoggerReopen(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +118,7 @@ func TestLoggerBufferFull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +149,69 @@ func TestLoggerBufferFull(t *testing.T) {
 	t.Logf("dropped %d entries out of %d", dropped, defaultBufferSize+100)
 }
 
+// TestLoggerReserveCommit verifies the fail-closed happy path: a reserved entry
+// is committed and written to the file.
+func TestLoggerReserveCommit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+
+	l, err := NewLogger(path, 4, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commit, ok := l.Reserve(context.Background())
+	if !ok {
+		t.Fatal("Reserve should succeed when capacity is available")
+	}
+	commit(audit.Entry{RequestID: "reserved-1"})
+	time.Sleep(50 * time.Millisecond)
+	l.Close()
+
+	got := readRequestIDs(t, path)
+	if len(got) != 1 || got[0] != "reserved-1" {
+		t.Errorf("got %v, want [reserved-1]", got)
+	}
+}
+
+// TestLoggerReserveSaturated verifies that Reserve fails (ok=false) within the
+// enqueue timeout when all buffer slots are held by uncommitted reservations —
+// this is what drives the fail-closed 503.
+func TestLoggerReserveSaturated(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+
+	const bufSize = 3
+	l, err := NewLogger(path, bufSize, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	// Acquire every permit without committing, exhausting capacity.
+	for i := range bufSize {
+		if _, ok := l.Reserve(context.Background()); !ok {
+			t.Fatalf("Reserve %d should succeed while capacity remains", i)
+		}
+	}
+
+	start := time.Now()
+	_, ok := l.Reserve(context.Background())
+	elapsed := time.Since(start)
+
+	if ok {
+		t.Error("Reserve should fail when all slots are held")
+	}
+	if elapsed < 40*time.Millisecond {
+		t.Errorf("Reserve returned after %v, expected it to block ~50ms (bounded) before failing", elapsed)
+	}
+}
+
 func TestLoggerConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,11 +256,19 @@ func TestLoggerConcurrentWrites(t *testing.T) {
 	}
 }
 
+// TestLoggerReopenFailure verifies that a failed reopen (e.g. logrotate has not
+// recreated the file/dir) does NOT cause a silent audit blackout: the logger
+// keeps writing to the previously-open file, and a later successful reopen
+// recovers cleanly. This guards the open-new-then-swap behavior.
 func TestLoggerReopenFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("test relies on file permissions to force a reopen failure; root bypasses them")
+	}
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,27 +277,26 @@ func TestLoggerReopenFailure(t *testing.T) {
 	l.Publish(audit.Entry{RequestID: "before-fail"})
 	time.Sleep(50 * time.Millisecond)
 
-	// Make the path unwritable so reopen fails.
-	os.Remove(path)
-	os.Mkdir(path, 0755) // path is now a directory — OpenFile will fail
+	// Make the file read-only so OpenFile(O_WRONLY) fails on reopen, while the
+	// already-open file descriptor inside the logger stays writable.
+	if err := os.Chmod(path, 0444); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := l.Reopen(); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	// Entries published after failed reopen should not panic.
-	err = l.Publish(audit.Entry{RequestID: "after-fail"})
-	if err != nil {
-		// May be nil (buffered) or non-nil (buffer full) — both OK.
-		t.Logf("publish after failed reopen: %v", err)
-	}
-
-	// Give flushLoop a chance to process the entry.
+	// Entries published during the failed-reopen window must NOT be lost — they
+	// are written through the retained (old) file descriptor to the same file.
+	l.Publish(audit.Entry{RequestID: "during-fail"})
 	time.Sleep(50 * time.Millisecond)
 
-	// Now fix the path and reopen again — should recover.
-	os.Remove(path) // remove the directory
+	// Restore permissions and reopen again — should recover and keep appending.
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := l.Reopen(); err != nil {
 		t.Fatal(err)
 	}
@@ -239,26 +305,44 @@ func TestLoggerReopenFailure(t *testing.T) {
 	l.Publish(audit.Entry{RequestID: "recovered"})
 	l.Close()
 
-	// The recovered file should have the entry.
+	got := readRequestIDs(t, path)
+	want := []string{"before-fail", "during-fail", "recovered"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d entries %v, want %d %v (no blackout: nothing may be lost)", len(got), got, len(want), want)
+	}
+	for i, id := range want {
+		if got[i] != id {
+			t.Errorf("entry %d = %q, want %q", i, got[i], id)
+		}
+	}
+}
+
+// readRequestIDs reads a JSON-lines audit file and returns the RequestID of each entry.
+func readRequestIDs(t *testing.T, path string) []string {
+	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read recovered file: %v", err)
+		t.Fatalf("read audit file: %v", err)
 	}
-
-	var got audit.Entry
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("invalid JSON in recovered file: %v", err)
+	var ids []string
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var e audit.Entry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatalf("invalid JSON line %q: %v", line, err)
+		}
+		ids = append(ids, e.RequestID)
 	}
-	if got.RequestID != "recovered" {
-		t.Errorf("recovered entry request_id = %q, want %q", got.RequestID, "recovered")
-	}
+	return ids
 }
 
 func TestLoggerCloseFlushes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 
-	l, err := NewLogger(path, 0)
+	l, err := NewLogger(path, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

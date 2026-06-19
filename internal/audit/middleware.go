@@ -3,19 +3,44 @@ package audit
 import (
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
+	"github.com/mai/pdag/internal/clientip"
 	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/middleware"
 )
 
+// Options configures the audit middleware.
+type Options struct {
+	// LogBody embeds the buffered request body in each audit entry.
+	LogBody bool
+	// FailClosed reserves audit-buffer capacity BEFORE proxying and returns 503
+	// if the audit pipeline is saturated, so no audited action is forwarded
+	// upstream without a durable slot. Requires the Publisher to implement
+	// Reserver (the file logger and Noop do).
+	FailClosed bool
+}
+
 // Middleware returns an HTTP middleware that logs every request to the audit log
 // after the response is written. It reads the status code from the shared context
 // pointer set by the metrics middleware (avoiding double StatusRecorder wrapping).
-// When logBody is true, the buffered request body is included in the audit entry.
-func Middleware(pub Publisher, logBody bool) func(http.Handler) http.Handler {
+//
+// In the default (fail-open) mode the entry is published after the response; a
+// saturated buffer drops it (loud metrics). In FailClosed mode a buffer slot is
+// reserved before the upstream call and the request is rejected with 503 if the
+// audit pipeline is saturated.
+func Middleware(pub Publisher, opts Options, resolver *clientip.Resolver) func(http.Handler) http.Handler {
+	var reserver Reserver
+	if opts.FailClosed {
+		r, ok := pub.(Reserver)
+		if !ok {
+			slog.Error("audit fail-closed mode requires a Reserver publisher; falling back to best-effort publish")
+		} else {
+			reserver = r
+		}
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -28,53 +53,70 @@ func Middleware(pub Publisher, logBody bool) func(http.Handler) http.Handler {
 			// Allocate body bytes pointer so BodyBuffer (downstream) can
 			// write the buffered request body back to us.
 			var bodyBytes []byte
-			if logBody {
+			if opts.LogBody {
 				ctx = middleware.WithBodyBytesPtr(ctx, &bodyBytes)
 			}
 
 			r = r.WithContext(ctx)
 
+			buildEntry := func() Entry {
+				statusCode := 0
+				if ptr := middleware.GetStatusCodePtr(r.Context()); ptr != nil {
+					statusCode = *ptr
+				}
+				sourceIP := ""
+				if ip := resolver.ClientIP(r); ip != nil {
+					sourceIP = ip.String()
+				}
+				entry := Entry{
+					Timestamp:     time.Now().UTC(),
+					RequestID:     middleware.GetRequestID(ctx),
+					Principal:     middleware.GetPrincipal(ctx),
+					KeyID:         middleware.GetKeyID(ctx),
+					Method:        r.Method,
+					Path:          r.URL.Path,
+					Query:         r.URL.RawQuery,
+					SourceIP:      sourceIP,
+					UserAgent:     r.UserAgent(),
+					StatusCode:    statusCode,
+					LatencyMs:     time.Since(start).Milliseconds(),
+					AuthzDecision: authzResult.Decision,
+					AuthzPlugin:   authzResult.Plugin,
+					AuthzReason:   authzResult.Reason,
+				}
+				if opts.LogBody && len(bodyBytes) > 0 {
+					// Use json.RawMessage so valid JSON bodies are embedded
+					// inline rather than base64-encoded.
+					if json.Valid(bodyBytes) {
+						entry.RequestBody = json.RawMessage(bodyBytes)
+					} else {
+						entry.RequestBody = json.RawMessage(`"` + string(bodyBytes) + `"`)
+					}
+				}
+				return entry
+			}
+
+			if reserver != nil {
+				// Fail-closed: reserve a durable slot before the upstream call.
+				commit, ok := reserver.Reserve(r.Context())
+				if !ok {
+					metrics.AuditDroppedTotal.Inc()
+					slog.Error("audit pipeline saturated, rejecting request (fail-closed)",
+						"request_id", middleware.GetRequestID(ctx))
+					http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				// Guarantee the reserved slot is committed (released) even on a
+				// panic in the downstream chain.
+				defer func() { commit(buildEntry()) }()
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			next.ServeHTTP(w, r)
 
-			// Read status code from the shared pointer set by the metrics
-			// middleware (which owns the single StatusRecorder).
-			statusCode := 0
-			if ptr := middleware.GetStatusCodePtr(r.Context()); ptr != nil {
-				statusCode = *ptr
-			}
-
-			sourceIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-
-			entry := Entry{
-				Timestamp:     time.Now().UTC(),
-				RequestID:     middleware.GetRequestID(ctx),
-				Principal:     middleware.GetPrincipal(ctx),
-				KeyID:         middleware.GetKeyID(ctx),
-				Method:        r.Method,
-				Path:          r.URL.Path,
-				Query:         r.URL.RawQuery,
-				SourceIP:      sourceIP,
-				UserAgent:     r.UserAgent(),
-				StatusCode:    statusCode,
-				LatencyMs:     time.Since(start).Milliseconds(),
-				AuthzDecision: authzResult.Decision,
-				AuthzPlugin:   authzResult.Plugin,
-				AuthzReason:   authzResult.Reason,
-			}
-
-			if logBody && len(bodyBytes) > 0 {
-				// Use json.RawMessage so valid JSON bodies are embedded
-				// inline rather than base64-encoded.
-				if json.Valid(bodyBytes) {
-					entry.RequestBody = json.RawMessage(bodyBytes)
-				} else {
-					entry.RequestBody = json.RawMessage(`"` + string(bodyBytes) + `"`)
-				}
-			}
-
-			if err := pub.Publish(entry); err != nil {
-				slog.Error("audit log write failed", "request_id", entry.RequestID, "error", err)
-				metrics.AuditWriteErrorsTotal.Inc()
+			if err := pub.Publish(buildEntry()); err != nil {
+				slog.Error("audit log write failed", "request_id", middleware.GetRequestID(ctx), "error", err)
 			}
 		})
 	}

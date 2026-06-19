@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -30,10 +31,30 @@ type Publisher interface {
 	Publish(Entry) error
 }
 
+// Reserver is an optional capability for Publishers that support reserving
+// buffer capacity ahead of time. It enables fail-closed audit mode: the audit
+// middleware reserves a slot BEFORE the upstream call, so a saturated audit
+// pipeline rejects the request (503) rather than letting an unaudited mutation
+// through.
+type Reserver interface {
+	// Reserve blocks (up to an implementation-defined timeout, also bounded by
+	// ctx) to acquire one buffer slot. On success it returns a commit function
+	// that must be called exactly once with the final entry, and ok=true. On
+	// failure (pipeline saturated or closed) it returns a nil commit and
+	// ok=false.
+	Reserve(ctx context.Context) (commit func(Entry), ok bool)
+}
+
 // noop is a Publisher that silently discards all entries.
 type noop struct{}
 
 func (noop) Publish(Entry) error { return nil }
+
+// Reserve implements Reserver: it always succeeds with a no-op commit so
+// fail-closed mode degrades to a no-op when auditing is disabled.
+func (noop) Reserve(context.Context) (func(Entry), bool) {
+	return func(Entry) {}, true
+}
 
 // Noop returns a Publisher that discards all entries.
 func Noop() Publisher { return noop{} }

@@ -14,14 +14,16 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mai/pdag/internal/authn"
+	"github.com/mai/pdag/internal/clientip"
 	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/middleware"
 	"github.com/mai/pdag/internal/store"
 )
 
 // Middleware returns an HTTP middleware that authenticates requests via the
-// X-API-Key header in "keyID:secret" format.
-func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.Handler) http.Handler {
+// X-API-Key header in "keyID:secret" format. The resolver determines the client
+// IP used for the per-key allowed_cidrs check (honoring trusted-proxy XFF).
+func Middleware(keyStore store.KeyStore, authnService authn.Service, resolver *clientip.Resolver) func(http.Handler) http.Handler {
 	tracer := otel.Tracer("pdag.authn")
 
 	return func(next http.Handler) http.Handler {
@@ -75,8 +77,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 
 			// Check IP allowlist before more expensive checks.
 			if len(rec.AllowedCIDRs) > 0 {
-				sourceIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-				clientIP := net.ParseIP(sourceIP)
+				clientIP := resolver.ClientIP(r)
 				if clientIP == nil {
 					metrics.AuthnTotal.WithLabelValues("invalid_source_ip").Inc()
 					span.SetAttributes(attribute.String("authn.result", "invalid_source_ip"))
@@ -101,7 +102,7 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service) func(http.H
 					metrics.AuthnTotal.WithLabelValues("ip_not_allowed").Inc()
 					span.SetAttributes(attribute.String("authn.result", "ip_not_allowed"))
 					span.End()
-					slog.Debug("IP not in allowlist", "request_id", requestID, "key_id", keyID, "source_ip", sourceIP)
+					slog.Debug("IP not in allowlist", "request_id", requestID, "key_id", keyID, "source_ip", clientIP.String())
 					http.Error(w, "ip not allowed", http.StatusForbidden)
 					return
 				}

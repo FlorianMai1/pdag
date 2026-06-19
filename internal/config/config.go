@@ -80,15 +80,18 @@ type Tracing struct {
 }
 
 type Config struct {
-	Listen             string        `mapstructure:"listen"`
-	MaxBodySize        int64         `mapstructure:"max_body_size"`
-	AuditLog           string        `mapstructure:"audit_log"`
-	AuditBufferSize    int           `mapstructure:"audit_buffer_size"`
-	AuditLogBody       bool          `mapstructure:"audit_log_body"`
-	AdminToken         string        `mapstructure:"admin_token"`
-	AdminTokenFile     string        `mapstructure:"admin_token_file"`
-	ShutdownWait       time.Duration `mapstructure:"shutdown_wait"`
-	KeyCleanupInterval time.Duration `mapstructure:"key_cleanup_interval"`
+	Listen              string        `mapstructure:"listen"`
+	MaxBodySize         int64         `mapstructure:"max_body_size"`
+	AuditLog            string        `mapstructure:"audit_log"`
+	AuditBufferSize     int           `mapstructure:"audit_buffer_size"`
+	AuditLogBody        bool          `mapstructure:"audit_log_body"`
+	AuditFailClosed     bool          `mapstructure:"audit_fail_closed"`
+	AuditEnqueueTimeout time.Duration `mapstructure:"audit_enqueue_timeout"`
+	AdminToken          string        `mapstructure:"admin_token"`
+	AdminTokenFile      string        `mapstructure:"admin_token_file"`
+	ShutdownWait        time.Duration `mapstructure:"shutdown_wait"`
+	KeyCleanupInterval  time.Duration `mapstructure:"key_cleanup_interval"`
+	TrustedProxies      []string      `mapstructure:"trusted_proxies"`
 
 	Upstreams   Upstreams    `mapstructure:"upstreams"`
 	DB          DB           `mapstructure:"db"`
@@ -132,6 +135,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("audit_buffer_size", 4096)
 	v.SetDefault("key_cleanup_interval", 0)
 	v.SetDefault("audit_log_body", false)
+	v.SetDefault("audit_fail_closed", false)
+	v.SetDefault("audit_enqueue_timeout", 250*time.Millisecond)
 
 	// Register all keys so AutomaticEnv can find them.
 	v.SetDefault("audit_log", "")
@@ -258,6 +263,18 @@ func (c *Config) validate() error {
 	// Audit buffer size.
 	if c.AuditBufferSize <= 0 {
 		return fmt.Errorf("audit_buffer_size must be > 0, got %d", c.AuditBufferSize)
+	}
+
+	// Audit enqueue timeout.
+	if c.AuditEnqueueTimeout < 0 {
+		return fmt.Errorf("audit_enqueue_timeout must be >= 0, got %v", c.AuditEnqueueTimeout)
+	}
+
+	// Trusted proxies (used for client-IP resolution / IP allowlisting).
+	for i, c := range c.TrustedProxies {
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(c)); err != nil {
+			return fmt.Errorf("trusted_proxies[%d]: invalid CIDR %q: %w", i, c, err)
+		}
 	}
 
 	// Plugins.

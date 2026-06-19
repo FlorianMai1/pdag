@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,8 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mai/pdag/internal/clientip"
 	"github.com/mai/pdag/internal/middleware"
 )
+
+// testResolver has no trusted proxies, so it resolves the client IP straight
+// from RemoteAddr — matching the audit tests' RemoteAddr expectations.
+var testResolver, _ = clientip.New(nil)
 
 type mockPublisher struct {
 	mu      sync.Mutex
@@ -21,6 +27,76 @@ func (m *mockPublisher) Publish(e Entry) error {
 	defer m.mu.Unlock()
 	m.entries = append(m.entries, e)
 	return nil
+}
+
+// reservingPublisher is a mockPublisher that also implements Reserver. reserveOK
+// controls whether Reserve succeeds; committed entries are appended via Publish.
+type reservingPublisher struct {
+	mockPublisher
+	reserveOK bool
+}
+
+func (m *reservingPublisher) Reserve(context.Context) (func(Entry), bool) {
+	if !m.reserveOK {
+		return nil, false
+	}
+	return func(e Entry) { _ = m.Publish(e) }, true
+}
+
+func TestAuditMiddlewareFailClosedRejectsWhenSaturated(t *testing.T) {
+	pub := &reservingPublisher{reserveOK: false}
+
+	var innerCalled bool
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		innerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := middleware.RequestID(Middleware(pub, Options{FailClosed: true}, testResolver)(inner))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/servers/localhost/zones/example.org.", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if innerCalled {
+		t.Error("fail-closed: upstream handler must NOT be called when the audit pipeline is saturated")
+	}
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if len(pub.entries) != 0 {
+		t.Errorf("got %d audit entries, want 0 (no reservation, no commit)", len(pub.entries))
+	}
+}
+
+func TestAuditMiddlewareFailClosedCommitsWhenReserved(t *testing.T) {
+	pub := &reservingPublisher{reserveOK: true}
+
+	var innerCalled bool
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		innerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := middleware.RequestID(Middleware(pub, Options{FailClosed: true}, testResolver)(inner))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !innerCalled {
+		t.Error("upstream handler should be called when reservation succeeds")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if len(pub.entries) != 1 {
+		t.Fatalf("got %d audit entries, want 1 (reserved + committed)", len(pub.entries))
+	}
 }
 
 func TestAuditMiddleware(t *testing.T) {
@@ -40,7 +116,7 @@ func TestAuditMiddleware(t *testing.T) {
 		})
 	}
 
-	handler := middleware.RequestID(withStatusCode(Middleware(pub, false)(inner)))
+	handler := middleware.RequestID(withStatusCode(Middleware(pub, Options{}, testResolver)(inner)))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers?q=test", nil)
 	req.Header.Set("User-Agent", "test-agent")
@@ -96,7 +172,7 @@ func TestAuditMiddlewareLogsBody(t *testing.T) {
 	}
 
 	// Chain: audit(logBody=true) → bodyBuffer → inner
-	handler := withStatusCode(Middleware(pub, true)(middleware.BodyBuffer(1 << 20)(inner)))
+	handler := withStatusCode(Middleware(pub, Options{LogBody: true}, testResolver)(middleware.BodyBuffer(1 << 20)(inner)))
 
 	body := `{"rrsets":[{"name":"example.com.","type":"A"}]}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/servers/localhost/zones/example.com.", strings.NewReader(body))
@@ -127,7 +203,7 @@ func TestAuditMiddlewareOmitsBodyWhenDisabled(t *testing.T) {
 	})
 
 	// logBody=false — should not capture body.
-	handler := Middleware(pub, false)(middleware.BodyBuffer(1 << 20)(inner))
+	handler := Middleware(pub, Options{}, testResolver)(middleware.BodyBuffer(1 << 20)(inner))
 
 	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"data":"test"}`))
 	req.RemoteAddr = "10.0.0.1:12345"
@@ -161,7 +237,7 @@ func TestAuditTimestampIsCompletionTime(t *testing.T) {
 		})
 	}
 
-	handler := withStatusCode(Middleware(pub, false)(inner))
+	handler := withStatusCode(Middleware(pub, Options{}, testResolver)(inner))
 
 	before := time.Now()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)

@@ -5,6 +5,14 @@ listen: ":8080"
 max_body_size: 1048576  # 1 MiB
 shutdown_wait: 30s
 
+# Trusted reverse-proxy CIDRs. When PDAG runs behind nginx/caddy, set this so the
+# real client IP is taken from X-Forwarded-For (rightmost untrusted hop) for the
+# per-key allowed_cidrs check and the audit log source_ip. Leave empty to use the
+# immediate peer (r.RemoteAddr); X-Forwarded-For is then ignored (unspoofable).
+# trusted_proxies:
+#   - "10.0.0.0/8"
+#   - "127.0.0.1/32"
+
 upstreams:
   backends:
     - url: "http://pdns:8081"
@@ -18,6 +26,13 @@ upstreams:
     path: "/api/v1/servers"  # health check endpoint
 
 audit_log: "/var/log/pdag/audit.jsonl"
+# audit_buffer_size: 4096          # in-memory audit entry buffer (channel) capacity
+# audit_enqueue_timeout: 250ms     # how long to wait for buffer space before dropping (default mode)
+                                   # or rejecting (fail-closed mode); 0 = non-blocking
+# audit_fail_closed: false         # when true, reject requests with 503 if the audit pipeline is
+                                   # saturated, so no audited action is forwarded upstream without a
+                                   # durable audit record. Trades availability for audit completeness:
+                                   # a sustained audit-write outage will start returning 503s.
 
 admin_token: "change-me-in-production"
 # admin_token_file: "/run/secrets/admin_token"  # alternative: read from file
