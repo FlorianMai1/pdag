@@ -49,12 +49,6 @@ admin_token: "change-me-in-production"
 # run an in-process cleanup goroutine.
 # key_cleanup_interval: 0
 
-# Restrict the real client IP (for per-key allowed_cidrs and the audit source_ip)
-# when running behind a reverse proxy. When the peer is one of these CIDRs, the
-# client IP is taken from X-Forwarded-For; otherwise XFF is ignored (unspoofable).
-# trusted_proxies:
-#   - "10.0.0.0/8"
-
 metrics:
   listen: ":9090"
 

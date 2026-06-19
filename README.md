@@ -12,7 +12,7 @@ permitted requests upstream with the real static API key.
 
 - **Per-caller API keys** — HMAC-derived `keyID:secret` credentials, hashed at rest,
   with optional expiry, per-key CIDR allowlists, enable/disable, and rotation.
-- **Pluginbased RBAC** — roles map 1:1 to authorization plugins (gRPC over
+- **Plugin-based RBAC** — roles map 1:1 to authorization plugins (gRPC over
   [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin)). First `ALLOW` across a
   caller's roles wins; all-`DENY` returns `403`.
 - **Plugin hardening** — optional per-plugin SHA-256 binary pinning, per-plugin
