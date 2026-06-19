@@ -54,6 +54,33 @@ func TestBodyBufferTooLarge(t *testing.T) {
 	}
 }
 
+// failOnReadBody fails the test if its body is read — proving the early
+// Content-Length rejection happens before any buffering.
+type failOnReadBody struct{ t *testing.T }
+
+func (b failOnReadBody) Read([]byte) (int, error) {
+	b.t.Fatal("body must not be read when Content-Length exceeds the limit")
+	return 0, io.EOF
+}
+func (failOnReadBody) Close() error { return nil }
+
+func TestBodyBufferRejectsByContentLengthWithoutReading(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for oversized body")
+	})
+
+	handler := BodyBuffer(10)(inner) // 10 byte limit
+	req := httptest.NewRequest(http.MethodPost, "/", failOnReadBody{t})
+	req.ContentLength = 1000 // declared larger than the limit
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", rec.Code)
+	}
+}
+
 func TestBodyBufferEmpty(t *testing.T) {
 	var ctxBody []byte
 
