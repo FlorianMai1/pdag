@@ -194,6 +194,16 @@ func (m *Manager) Authorize(ctx context.Context, roles []string, req *pb.HttpReq
 		}
 
 		go func(role string, inst *pluginInstance) {
+			// A panic in a plugin call must never crash the gateway: it runs in
+			// a bare goroutine that net/http's per-request recover cannot reach.
+			// Convert any panic into a DENY result so the request fails closed.
+			defer func() {
+				if rec := recover(); rec != nil {
+					slog.Error("plugin call panicked", "plugin", role, "panic", rec)
+					metrics.AuthzDecisionTotal.WithLabelValues(role, "error").Inc()
+					resultCh <- result{"deny", role, fmt.Sprintf("panic: %s", role)}
+				}
+			}()
 			pluginCtx, pluginSpan := tracer.Start(ctx, "authz.plugin."+role)
 			d, r := m.callPlugin(pluginCtx, role, inst, req)
 			pluginSpan.SetAttributes(
@@ -269,6 +279,16 @@ func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInsta
 		}
 
 		return "deny", fmt.Sprintf("error: %s: %s", name, err)
+	}
+
+	// A nil response with no error (a misbehaving or non-gRPC Authorizer
+	// implementation can produce this) would panic on resp.Decision below.
+	// Treat it as a failure and deny.
+	if resp == nil {
+		inst.breaker.RecordFailure()
+		metrics.AuthzDecisionTotal.WithLabelValues(name, "error").Inc()
+		slog.Error("plugin returned nil response", "plugin", name)
+		return "deny", fmt.Sprintf("nil response: %s", name)
 	}
 
 	inst.breaker.RecordSuccess()

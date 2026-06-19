@@ -53,6 +53,38 @@ func TestCallPluginCanceledDoesNotRecordFailure(t *testing.T) {
 	}
 }
 
+// nilAuthorizer returns (nil, nil) — a misbehaving plugin that would panic the
+// gateway on an unguarded resp.Decision dereference.
+type nilAuthorizer struct{}
+
+func (nilAuthorizer) Authorize(context.Context, *pb.HttpRequest) (*pb.AuthorizeResponse, error) {
+	return nil, nil //nolint:nilnil // deliberately exercises the nil-response guard
+}
+
+// TestCallPluginNilResponseDeniesWithoutPanic verifies a nil plugin response is
+// treated as a failure (deny + breaker failure) instead of panicking.
+func TestCallPluginNilResponseDeniesWithoutPanic(t *testing.T) {
+	m := &Manager{}
+	m.plugins.Store(&pluginMap{m: make(map[string]*pluginInstance)})
+
+	inst := &pluginInstance{
+		authz:   nilAuthorizer{},
+		breaker: NewCircuitBreaker("nilresp", 1, 2, 30*time.Second), // threshold 1 → trips on one failure
+		timeout: time.Second,
+	}
+
+	decision, reason := m.callPlugin(context.Background(), "nilresp", inst, &pb.HttpRequest{})
+	if decision != "deny" {
+		t.Errorf("decision = %q, want deny", decision)
+	}
+	if !strings.HasPrefix(reason, "nil response:") {
+		t.Errorf("reason = %q, want nil response: prefix", reason)
+	}
+	if got := inst.breaker.State(); got != StateOpen {
+		t.Errorf("breaker state = %v, want Open (nil response must record a failure)", got)
+	}
+}
+
 // TestCallPluginTimeoutRecordsFailure is the control case: a genuine per-call
 // timeout (parent ctx NOT canceled) must still record a breaker failure.
 func TestCallPluginTimeoutRecordsFailure(t *testing.T) {
