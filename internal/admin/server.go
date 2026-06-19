@@ -351,17 +351,23 @@ func listKeys(mgr store.KeyManager) http.HandlerFunc {
 		offset := 0
 
 		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				limit = n
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				http.Error(w, "limit must be a positive integer", http.StatusBadRequest)
+				return
 			}
+			limit = n
 		}
 		if limit > maxLimit {
 			limit = maxLimit
 		}
 		if v := r.URL.Query().Get("offset"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-				offset = n
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				http.Error(w, "offset must be a non-negative integer", http.StatusBadRequest)
+				return
 			}
+			offset = n
 		}
 
 		principal := r.URL.Query().Get("principal")

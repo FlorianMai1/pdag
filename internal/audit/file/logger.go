@@ -98,7 +98,6 @@ func (l *Logger) Publish(e audit.Entry) error {
 		metrics.AuditWriteErrorsTotal.Inc()
 		return fmt.Errorf("audit log closed, entry dropped")
 	}
-	metrics.AuditQueueDepth.Set(float64(len(l.ch)))
 
 	if l.enqueueTimeout <= 0 {
 		// Non-blocking fast path.
@@ -139,7 +138,6 @@ func (l *Logger) Reserve(ctx context.Context) (func(audit.Entry), bool) {
 		metrics.AuditDroppedTotal.Inc()
 		return nil, false
 	}
-	metrics.AuditQueueDepth.Set(float64(len(l.ch)))
 
 	acquire := func() bool {
 		if l.enqueueTimeout <= 0 {
@@ -223,6 +221,9 @@ func (l *Logger) writeAndRelease(e audit.Entry) {
 	case <-l.sem:
 	default:
 	}
+	// Sample the queue depth from the single flushLoop goroutine, where len(ch)
+	// is uncontended and meaningful (Publish callers race each other otherwise).
+	metrics.AuditQueueDepth.Set(float64(len(l.ch)))
 }
 
 func (l *Logger) writeEntry(e audit.Entry) {

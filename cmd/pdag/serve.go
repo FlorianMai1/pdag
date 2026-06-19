@@ -410,25 +410,34 @@ func listenAndServe(ctx context.Context, shutdownWait time.Duration, proxySrv, m
 
 	select {
 	case err := <-errCh:
+		// One server failed to start/serve — tear the others down so their
+		// listeners and goroutines don't leak, then surface the error.
+		slog.Error("server error, shutting down remaining servers", "error", err)
+		shutdownAll(shutdownWait, proxySrv, metricsSrv, adminSrv)
 		return err
 	case <-ctx.Done():
 		slog.Info("shutting down", "timeout", shutdownWait)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownWait)
-		defer cancel()
-
-		if adminSrv != nil {
-			if err := adminSrv.Shutdown(shutdownCtx); err != nil {
-				slog.Error("admin server shutdown", "error", err)
-			}
-		}
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("metrics server shutdown", "error", err)
-		}
-		if err := proxySrv.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
+		shutdownAll(shutdownWait, proxySrv, metricsSrv, adminSrv)
 	}
 
 	slog.Info("server stopped")
 	return nil
+}
+
+// shutdownAll gracefully shuts down all running servers within a bounded window.
+func shutdownAll(shutdownWait time.Duration, proxySrv, metricsSrv, adminSrv *http.Server) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownWait)
+	defer cancel()
+
+	if adminSrv != nil {
+		if err := adminSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("admin server shutdown", "error", err)
+		}
+	}
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("metrics server shutdown", "error", err)
+	}
+	if err := proxySrv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("proxy server shutdown", "error", err)
+	}
 }

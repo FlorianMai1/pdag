@@ -65,7 +65,9 @@ func Middleware(pub Publisher, opts Options, resolver *clientip.Resolver) func(h
 			r = r.WithContext(ctx)
 
 			buildEntry := func() Entry {
-				statusCode := 0
+				// Default to 200 (StatusRecorder's own default when WriteHeader is
+				// never called) rather than 0 if the status pointer is absent.
+				statusCode := http.StatusOK
 				if ptr := middleware.GetStatusCodePtr(r.Context()); ptr != nil {
 					statusCode = *ptr
 				}
