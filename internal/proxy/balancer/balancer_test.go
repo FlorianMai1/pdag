@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -197,6 +198,70 @@ func TestPassiveHealthMarking(t *testing.T) {
 	}
 	if lb.backends[0].healthy.Load() {
 		t.Error("backend should be marked unhealthy after transport error")
+	}
+}
+
+func TestFailoverIdempotentGET(t *testing.T) {
+	servers, backends, counts := testBackends(t, 2)
+	servers[0].Close() // backend 0 (tried first) is dead
+
+	lb := newTestBalancer(t, backends)
+
+	req := httptest.NewRequest("GET", "/zones", nil)
+	rec := httptest.NewRecorder()
+	lb.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (should fail over to healthy peer)", rec.Code)
+	}
+	if got := counts[1].Load(); got != 1 {
+		t.Errorf("healthy backend served %d requests, want 1", got)
+	}
+	if lb.backends[0].healthy.Load() {
+		t.Error("dead backend should be marked unhealthy")
+	}
+}
+
+func TestNoFailoverForNonIdempotent(t *testing.T) {
+	servers, backends, counts := testBackends(t, 2)
+	servers[0].Close() // backend 0 (tried first) is dead
+
+	lb := newTestBalancer(t, backends)
+
+	req := httptest.NewRequest("PATCH", "/zones", strings.NewReader(`{"rrsets":[]}`))
+	rec := httptest.NewRecorder()
+	lb.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502 (PATCH must not fail over)", rec.Code)
+	}
+	if got := counts[1].Load(); got != 0 {
+		t.Errorf("healthy backend served %d requests, want 0 (no retry for PATCH)", got)
+	}
+}
+
+func TestClientCancelDoesNotMarkUnhealthy(t *testing.T) {
+	// Backend blocks until the inbound request is canceled, emulating a client
+	// that hangs up mid-request.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	lb := newTestBalancer(t, []Backend{{URL: server.URL, APIKey: "key"}})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest("GET", "/zones", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	lb.ServeHTTP(rec, req)
+
+	if !lb.backends[0].healthy.Load() {
+		t.Error("a client cancellation must NOT mark the backend unhealthy")
 	}
 }
 

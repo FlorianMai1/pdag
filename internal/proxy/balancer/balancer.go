@@ -1,7 +1,10 @@
 package balancer
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -10,10 +13,37 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mai/pdag/internal/middleware"
 	"github.com/mai/pdag/internal/proxy"
 )
 
 var _ proxy.Backend = (*Balancer)(nil)
+
+// maxAttempts bounds how many backends a single request may be tried against
+// (the chosen backend plus at most one failover), so a request never fans out
+// across the whole pool when backends are failing.
+const maxAttempts = 2
+
+// attemptState carries the outcome of one ReverseProxy attempt back to
+// ServeHTTP via the request context, so the balancer (not the ReverseProxy)
+// decides whether to retry or commit a 502.
+type attemptState struct {
+	failed   bool // transport error occurred (no response committed to the client)
+	canceled bool // the inbound client canceled — not a backend health signal
+}
+
+type attemptCtxKey struct{}
+
+// isIdempotentMethod reports whether a failed request may be safely replayed
+// against another backend.
+func isIdempotentMethod(m string) bool {
+	switch m {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
 
 // Backend describes a single upstream PowerDNS instance.
 type Backend struct {
@@ -71,8 +101,28 @@ func New(cfg Config) (*Balancer, error) {
 		entry.rp = &httputil.ReverseProxy{
 			Rewrite: rewriteFunc(target, apiKey),
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+				st, _ := r.Context().Value(attemptCtxKey{}).(*attemptState)
+
+				// A client-side cancellation says nothing about backend health
+				// and must not be retried or 502'd — the client is already gone.
+				if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+					slog.Debug("backend request canceled by client", "backend", entry.url)
+					if st != nil {
+						st.failed = true
+						st.canceled = true
+					}
+					return
+				}
+
 				slog.Warn("backend error, marking unhealthy", "backend", entry.url, "error", err)
 				entry.healthy.Store(false)
+				if st != nil {
+					// Let ServeHTTP decide whether to fail over or write 502.
+					// Nothing is written here, so the response is still pristine
+					// (ErrorHandler only fires on pre-response transport errors).
+					st.failed = true
+					return
+				}
 				http.Error(w, "bad gateway", http.StatusBadGateway)
 			},
 		}
@@ -91,20 +141,49 @@ func New(cfg Config) (*Balancer, error) {
 	return lb, nil
 }
 
-// ServeHTTP picks a healthy backend via round-robin and proxies the request.
+// ServeHTTP picks a healthy backend via round-robin and proxies the request,
+// with bounded request-level failover: on a transport error (not a client
+// cancellation) for an idempotent method, it retries one other healthy backend
+// before giving up with a 502. At most maxAttempts backends are tried.
 func (lb *Balancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n := uint64(len(lb.backends))
 	start := lb.counter.Add(1) - 1
 
-	for i := range n {
+	// Buffered request body (set by the BodyBuffer middleware) so a retry can
+	// replay it; nil for bodyless requests.
+	body := middleware.GetBodyBytes(r.Context())
+
+	attempts := 0
+	for i := uint64(0); i < n && attempts < maxAttempts; i++ {
 		idx := (start + i) % n
-		if lb.backends[idx].healthy.Load() {
-			lb.backends[idx].rp.ServeHTTP(w, r)
-			return
+		if !lb.backends[idx].healthy.Load() {
+			continue
+		}
+
+		if body != nil {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		st := &attemptState{}
+		ar := r.WithContext(context.WithValue(r.Context(), attemptCtxKey{}, st))
+		lb.backends[idx].rp.ServeHTTP(w, ar)
+		attempts++
+
+		if !st.failed {
+			return // backend committed a response
+		}
+		if st.canceled {
+			return // client disconnected; nothing to retry or write
+		}
+		if !isIdempotentMethod(r.Method) {
+			break // do not replay a non-idempotent request
 		}
 	}
 
-	http.Error(w, "no healthy backends", http.StatusBadGateway)
+	if attempts == 0 {
+		http.Error(w, "no healthy backends", http.StatusBadGateway)
+		return
+	}
+	http.Error(w, "bad gateway", http.StatusBadGateway)
 }
 
 // Healthy returns true if at least one backend is available.
