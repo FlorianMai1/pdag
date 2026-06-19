@@ -1,5 +1,5 @@
 # github.com/FlorianMai1/pdag
-# Requires: golangci-lint v1.64+ (https://golangci-lint.run/usage/install/)
+# Requires: golangci-lint v2.x (https://golangci-lint.run/usage/install/)
 
 GO       ?= go
 GOFLAGS  ?= -trimpath
@@ -59,7 +59,7 @@ clean:
 
 # ── Binary rules ─────────────────────────────────────────────────
 
-$(PDAG): $(shell find cmd internal proto sdk -name '*.go')
+$(PDAG): go.mod go.sum $(shell find cmd internal proto sdk -name '*.go')
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=$(CGO) $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/pdag
 

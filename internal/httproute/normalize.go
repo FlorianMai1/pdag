@@ -37,7 +37,7 @@ func Normalize(path string) string {
 	}
 
 	// Everything else must be a PowerDNS API path; otherwise fold to /other.
-	if !(len(parts) >= 3 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "servers") {
+	if len(parts) < 3 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "servers" {
 		return OtherPath
 	}
 	if len(parts) == 3 {

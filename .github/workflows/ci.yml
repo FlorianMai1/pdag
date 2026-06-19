@@ -30,12 +30,12 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.8
-          # Compile golangci-lint with the runner's Go (1.26 from go.mod) instead
-          # of using the prebuilt binary (built with an older Go), which refuses a
-          # module whose targeted Go version is newer than its own build toolchain.
+          version: v2.12.2
+          # Compile golangci-lint with the runner's Go (1.26.4 from go.mod) instead
+          # of the prebuilt binary, so its build toolchain is never older than the
+          # module's targeted Go version.
           install-mode: goinstall
 
       - name: unit tests (race)

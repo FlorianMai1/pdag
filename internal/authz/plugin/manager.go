@@ -124,7 +124,9 @@ func startPlugin(name string, pc authz.PluginConfig) (*pluginInstance, error) {
 		Plugins: map[string]plugin.Plugin{
 			"authorizer": &sdk.AuthorizerPlugin{},
 		},
-		Cmd:              exec.Command(pc.Path),
+		// The plugin subprocess lifetime is owned by go-plugin (Kill/restart),
+		// not by any request context, so CommandContext would be wrong here.
+		Cmd:              exec.Command(pc.Path), //nolint:noctx // managed by go-plugin, not request-scoped
 		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
 	})
 

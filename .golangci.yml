@@ -1,46 +1,59 @@
-run:
-  timeout: 3m
-
+version: "2"
 linters:
   enable:
+    - bodyclose
     - errorlint
-    - gofmt
-    - goimports
     - misspell
     - nilerr
-    - bodyclose
     - noctx
+    - sqlclosecheck
     - unconvert
     - wastedassign
-    - sqlclosecheck
-
-linters-settings:
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
-
-  govet:
-    enable:
-      - shadow
-
-  goimports:
-    local-prefixes: github.com/FlorianMai1/pdag
-
-  misspell:
-    locale: US
-
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    govet:
+      enable:
+        - shadow
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - errcheck
+          - govet
+          - noctx
+        path: _test\.go
+      - linters:
+          - noctx
+        path: tests/
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - bodyclose
-        - govet
-
-    - path: tests/
-      linters:
-        - noctx
-
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/FlorianMai1/pdag
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
