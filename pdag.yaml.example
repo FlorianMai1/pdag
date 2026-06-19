@@ -44,6 +44,17 @@ audit_log: "/var/log/pdag/audit.jsonl"
 admin_token: "change-me-in-production"
 # admin_token_file: "/run/secrets/admin_token"  # alternative: read from file
 
+# Background purge of expired keys. 0 (default) disables it — operators call
+# DELETE /admin/keys/expired on their own schedule. Set a positive duration to
+# run an in-process cleanup goroutine.
+# key_cleanup_interval: 0
+
+# Restrict the real client IP (for per-key allowed_cidrs and the audit source_ip)
+# when running behind a reverse proxy. When the peer is one of these CIDRs, the
+# client IP is taken from X-Forwarded-For; otherwise XFF is ignored (unspoofable).
+# trusted_proxies:
+#   - "10.0.0.0/8"
+
 metrics:
   listen: ":9090"
 
@@ -80,6 +91,7 @@ plugin_defaults:
 plugins:
   admin:
     path: "/opt/pdag/plugins/admin"
+    # sha256: "<64-hex-digest>"  # optional: pin the plugin binary; startup fails on mismatch
   read_zones:
     path: "/opt/pdag/plugins/read_zones"
   letsencrypt_dns_challenger:
