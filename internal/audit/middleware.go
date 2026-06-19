@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -20,6 +19,12 @@ type Options struct {
 	// upstream without a durable slot. Requires the Publisher to implement
 	// Reserver (the file logger and Noop do).
 	FailClosed bool
+	// BodyMaxBytes caps the logged request body (0 = unlimited); larger bodies
+	// are truncated with a marker. Only used when LogBody is true.
+	BodyMaxBytes int
+	// RedactFields is the set of JSON field names (lower-cased) whose values are
+	// replaced with a redaction marker before logging. Only used when LogBody.
+	RedactFields map[string]bool
 }
 
 // Middleware returns an HTTP middleware that logs every request to the audit log
@@ -85,13 +90,8 @@ func Middleware(pub Publisher, opts Options, resolver *clientip.Resolver) func(h
 					AuthzReason:   authzResult.Reason,
 				}
 				if opts.LogBody && len(bodyBytes) > 0 {
-					// Use json.RawMessage so valid JSON bodies are embedded
-					// inline rather than base64-encoded.
-					if json.Valid(bodyBytes) {
-						entry.RequestBody = json.RawMessage(bodyBytes)
-					} else {
-						entry.RequestBody = json.RawMessage(`"` + string(bodyBytes) + `"`)
-					}
+					// Redact sensitive fields and cap the size before embedding.
+					entry.RequestBody = sanitizeBody(bodyBytes, opts.BodyMaxBytes, opts.RedactFields)
 				}
 				return entry
 			}

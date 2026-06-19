@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mai/pdag/internal/metrics"
 	"github.com/mai/pdag/internal/ratelimit"
 	"github.com/mai/pdag/internal/ratelimit/token"
 	"github.com/mai/pdag/internal/store"
@@ -21,11 +22,59 @@ import (
 
 const adminMaxBodyBytes = 64 * 1024 // 64 KiB
 const maxPrincipalLen = 256
+const maxRoles = 64
+const maxRoleLen = 128
+
+// validateRoles trims and validates a requested role set: rejects empty/blank
+// roles, caps the count and per-role length, and (when known is non-empty) warns
+// about roles with no matching authz plugin to catch typos. Returns the trimmed
+// roles on success.
+func validateRoles(roles []string, known map[string]bool) ([]string, error) {
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("at least one role is required")
+	}
+	if len(roles) > maxRoles {
+		return nil, fmt.Errorf("too many roles (max %d)", maxRoles)
+	}
+	cleaned := make([]string, 0, len(roles))
+	for _, role := range roles {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			return nil, fmt.Errorf("roles must not be empty or blank")
+		}
+		if len(role) > maxRoleLen {
+			return nil, fmt.Errorf("role exceeds maximum length of %d", maxRoleLen)
+		}
+		if len(known) > 0 && !known[role] {
+			slog.Warn("key assigned a role with no matching authz plugin", "role", role)
+		}
+		cleaned = append(cleaned, role)
+	}
+	return cleaned, nil
+}
+
+// auditMutation records the audit event for a mutation that has ALREADY been
+// applied to the store. On audit-write failure the mutation cannot be cleanly
+// rolled back, so it flags the split-brain via a reconciliation log line and the
+// audit_inconsistency_total metric and reports 500 to the caller. Returns false
+// if auditing failed (caller should return immediately).
+func auditMutation(w http.ResponseWriter, r *http.Request, mgr store.KeyManager, keyID, action string, oldValues, newValues any) bool {
+	if err := mgr.AuditKeyEvent(r.Context(), keyID, action, "admin_api", oldValues, newValues); err != nil {
+		metrics.AuditInconsistencyTotal.Inc()
+		slog.Error("audit inconsistency: mutation applied but not audited",
+			"action", action, "key_id", keyID, "error", err)
+		http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
 
 // NewServer returns an http.Server for the admin API on the given address.
-func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToken string) *http.Server {
+// knownRoles is the set of roles backed by a configured authz plugin; it is used
+// only to warn (not reject) when a key is assigned an unrecognized role.
+func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToken string, knownRoles map[string]bool) *http.Server {
 	rl := token.New(token.Config{Rate: 10, Burst: 50})
-	handler := withRateLimit(rl, maxBodyBytes(adminMaxBodyBytes, Handler(mgr, keygen, adminToken)))
+	handler := withRateLimit(rl, maxBodyBytes(adminMaxBodyBytes, Handler(mgr, keygen, adminToken, knownRoles)))
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -37,17 +86,17 @@ func NewServer(addr string, mgr store.KeyManager, keygen KeyGenerator, adminToke
 }
 
 // Handler returns an http.Handler for the admin API routes.
-func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string) http.Handler {
+func Handler(mgr store.KeyManager, keygen KeyGenerator, adminToken string, knownRoles map[string]bool) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /admin/keys", withAuth(adminToken, createKey(mgr, keygen)))
+	mux.HandleFunc("POST /admin/keys", withAuth(adminToken, createKey(mgr, keygen, knownRoles)))
 	mux.HandleFunc("GET /admin/keys/{id}", withAuth(adminToken, getKey(mgr)))
 	mux.HandleFunc("GET /admin/keys", withAuth(adminToken, listKeys(mgr)))
 	mux.HandleFunc("DELETE /admin/keys/expired", withAuth(adminToken, purgeExpired(mgr)))
 	mux.HandleFunc("DELETE /admin/keys/{id}", withAuth(adminToken, deleteKey(mgr)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/disable", withAuth(adminToken, setEnabled(mgr, false)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/enable", withAuth(adminToken, setEnabled(mgr, true)))
-	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr)))
+	mux.HandleFunc("PUT /admin/keys/{id}/roles", withAuth(adminToken, updateRoles(mgr, knownRoles)))
 	mux.HandleFunc("POST /admin/keys/{id}/rotate", withAuth(adminToken, rotateKey(mgr, keygen)))
 	mux.HandleFunc("PUT /admin/keys/{id}/allowed-cidrs", withAuth(adminToken, updateAllowedCIDRs(mgr)))
 	mux.HandleFunc("PATCH /admin/keys/{id}/expiry", withAuth(adminToken, setExpiry(mgr)))
@@ -169,7 +218,7 @@ type createKeyResponse struct {
 	Roles     []string `json:"roles"`
 }
 
-func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
+func createKey(mgr store.KeyManager, keygen KeyGenerator, knownRoles map[string]bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createKeyRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -184,10 +233,12 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("principal exceeds maximum length of %d", maxPrincipalLen), http.StatusBadRequest)
 			return
 		}
-		if len(req.Roles) == 0 {
-			http.Error(w, "at least one role is required", http.StatusBadRequest)
+		roles, err := validateRoles(req.Roles, knownRoles)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		req.Roles = roles
 
 		keyID, err := keygen.GenerateKeyID()
 		if err != nil {
@@ -234,7 +285,15 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 			"principal": req.Principal,
 			"roles":     req.Roles,
 		}); err != nil {
-			slog.Error("audit key create", "error", err)
+			// The key is live but unaudited and its secret is about to be lost.
+			// Compensate by deleting the just-created key so we never leave an
+			// unauditable orphan; only if that also fails is it a true split-brain.
+			slog.Error("audit key create failed, deleting orphaned key", "key_id", keyID, "error", err)
+			if delErr := mgr.Delete(r.Context(), keyID); delErr != nil {
+				metrics.AuditInconsistencyTotal.Inc()
+				slog.Error("audit inconsistency: could not delete unaudited key after create-audit failure",
+					"key_id", keyID, "error", delErr)
+			}
 			http.Error(w, "audit logging failed", http.StatusInternalServerError)
 			return
 		}
@@ -329,9 +388,7 @@ func deleteKey(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if err := mgr.AuditKeyEvent(r.Context(), id, "delete", "admin_api", nil, nil); err != nil {
-			slog.Error("audit key delete", "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		if !auditMutation(w, r, mgr, id, "delete", nil, nil) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -354,11 +411,7 @@ func setEnabled(mgr store.KeyManager, enabled bool) http.HandlerFunc {
 		if enabled {
 			action = "enable"
 		}
-		if err := mgr.AuditKeyEvent(r.Context(), id, action, "admin_api", nil, map[string]any{
-			"enabled": enabled,
-		}); err != nil {
-			slog.Error("audit key "+action, "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		if !auditMutation(w, r, mgr, id, action, nil, map[string]any{"enabled": enabled}) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -398,11 +451,7 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if err := mgr.AuditKeyEvent(r.Context(), id, "update_expiry", "admin_api", nil, map[string]any{
-			"expires_at": expiresAt,
-		}); err != nil {
-			slog.Error("audit key update_expiry", "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		if !auditMutation(w, r, mgr, id, "update_expiry", nil, map[string]any{"expires_at": expiresAt}) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -447,12 +496,12 @@ func rotateKey(mgr store.KeyManager, keygen KeyGenerator) http.HandlerFunc {
 			return
 		}
 
-		if err := mgr.AuditKeyEvent(r.Context(), id, "rotate", "admin_api",
+		// Note: on audit failure the hash is already rotated and the new secret
+		// is about to be lost — there is no clean rollback (the old hash is
+		// gone), so auditMutation flags the inconsistency for reconciliation.
+		if !auditMutation(w, r, mgr, id, "rotate",
 			map[string]any{"hmac_key_id": rec.HmacKeyID},
-			map[string]any{"hmac_key_id": keygen.HmacKeyID()},
-		); err != nil {
-			slog.Error("audit key rotate", "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+			map[string]any{"hmac_key_id": keygen.HmacKeyID()}) {
 			return
 		}
 
@@ -469,7 +518,7 @@ type updateRolesRequest struct {
 	Roles []string `json:"roles"`
 }
 
-func updateRoles(mgr store.KeyManager) http.HandlerFunc {
+func updateRoles(mgr store.KeyManager, knownRoles map[string]bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 
@@ -478,10 +527,12 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if len(req.Roles) == 0 {
-			http.Error(w, "at least one role is required", http.StatusBadRequest)
+		roles, err := validateRoles(req.Roles, knownRoles)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		req.Roles = roles
 
 		if err := mgr.SetRoles(r.Context(), id, req.Roles); err != nil {
 			if errors.Is(err, store.ErrKeyNotFound) {
@@ -492,11 +543,7 @@ func updateRoles(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if err := mgr.AuditKeyEvent(r.Context(), id, "update_roles", "admin_api", nil, map[string]any{
-			"roles": req.Roles,
-		}); err != nil {
-			slog.Error("audit key update_roles", "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		if !auditMutation(w, r, mgr, id, "update_roles", nil, map[string]any{"roles": req.Roles}) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -534,11 +581,7 @@ func updateAllowedCIDRs(mgr store.KeyManager) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if err := mgr.AuditKeyEvent(r.Context(), id, "update_allowed_cidrs", "admin_api", nil, map[string]any{
-			"allowed_cidrs": req.AllowedCIDRs,
-		}); err != nil {
-			slog.Error("audit key update_allowed_cidrs", "error", err)
-			http.Error(w, "audit logging failed", http.StatusInternalServerError)
+		if !auditMutation(w, r, mgr, id, "update_allowed_cidrs", nil, map[string]any{"allowed_cidrs": req.AllowedCIDRs}) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

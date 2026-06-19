@@ -87,6 +87,8 @@ type Config struct {
 	AuditLogBody        bool          `mapstructure:"audit_log_body"`
 	AuditFailClosed     bool          `mapstructure:"audit_fail_closed"`
 	AuditEnqueueTimeout time.Duration `mapstructure:"audit_enqueue_timeout"`
+	AuditBodyMaxBytes   int           `mapstructure:"audit_body_max_bytes"`
+	AuditRedactFields   []string      `mapstructure:"audit_redact_fields"`
 	AdminToken          string        `mapstructure:"admin_token"`
 	AdminTokenFile      string        `mapstructure:"admin_token_file"`
 	ShutdownWait        time.Duration `mapstructure:"shutdown_wait"`
@@ -137,6 +139,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("audit_log_body", false)
 	v.SetDefault("audit_fail_closed", false)
 	v.SetDefault("audit_enqueue_timeout", 250*time.Millisecond)
+	v.SetDefault("audit_body_max_bytes", 8192)
+	v.SetDefault("audit_redact_fields", []string{"privatekey", "key", "secret", "tsig"})
 
 	// Register all keys so AutomaticEnv can find them.
 	v.SetDefault("audit_log", "")
@@ -260,6 +264,12 @@ func (c *Config) validate() error {
 		return fmt.Errorf("key_cleanup_interval must be >= 0, got %v", c.KeyCleanupInterval)
 	}
 
+	// Shutdown wait: must be positive, else graceful shutdown becomes an
+	// instant hard stop (context.WithTimeout with <=0 is already expired).
+	if c.ShutdownWait <= 0 {
+		return fmt.Errorf("shutdown_wait must be > 0, got %v", c.ShutdownWait)
+	}
+
 	// Audit buffer size.
 	if c.AuditBufferSize <= 0 {
 		return fmt.Errorf("audit_buffer_size must be > 0, got %d", c.AuditBufferSize)
@@ -268,6 +278,11 @@ func (c *Config) validate() error {
 	// Audit enqueue timeout.
 	if c.AuditEnqueueTimeout < 0 {
 		return fmt.Errorf("audit_enqueue_timeout must be >= 0, got %v", c.AuditEnqueueTimeout)
+	}
+
+	// Audit body cap.
+	if c.AuditBodyMaxBytes < 0 {
+		return fmt.Errorf("audit_body_max_bytes must be >= 0, got %d", c.AuditBodyMaxBytes)
 	}
 
 	// Trusted proxies (used for client-IP resolution / IP allowlisting).

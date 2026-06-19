@@ -68,9 +68,18 @@ The plugin manager uses `atomic.Pointer[pluginMap]` with copy-on-write for the p
 
 When `audit_log_body: true` is set, the buffered request body is embedded in audit entries as inline JSON (via `json.RawMessage`). This uses the same pointer-through-context pattern as `bodySizePtr` and `authzResultPtr`: the audit middleware allocates a `*[]byte` pointer in context, the body buffer middleware writes through it, and the audit middleware reads it after the response. This avoids copying the body and requires no changes to the middleware chain order. Disabled by default to avoid bloating audit logs.
 
+Two guards bound the cost and exposure of body logging:
+
+- **Size cap** — `audit_body_max_bytes` (default 8 KiB, independent of `max_body_size`) truncates large bodies with a `…(truncated)` marker, so an in-flight audit channel cannot retain `buffer_size × max_body_size` of body data. Truncated content is embedded as a JSON string rather than inline JSON.
+- **Field redaction** — `audit_redact_fields` (default `privatekey`, `key`, `secret`, `tsig`) lists JSON keys whose values are replaced with `"[REDACTED]"` (case-insensitive, recursive) before logging, so secret material submitted to PowerDNS (cryptokey/TSIG endpoints) does not land in the audit log verbatim. Redaction re-encodes the JSON (keys may be reordered); set it to empty to embed bodies byte-for-byte.
+
 ### IP allowlisting per key
 
-Each key can have an optional `allowed_cidrs` list. An empty list means no restriction (backwards compatible). When set, the authn middleware checks the resolved client IP against the CIDR list *before* HMAC verification — the cheaper check runs first. Invalid CIDRs in stored data are logged but skipped rather than failing auth (graceful degradation). CIDRs are validated at the admin API boundary when set via `PUT /admin/keys/{id}/allowed-cidrs`. The field uses the same `TEXT[]` PostgreSQL type and `TextArray` Go type as `roles`.
+Each key can have an optional `allowed_cidrs` list. An empty list means no restriction (backwards compatible). When set, the authn middleware checks the resolved client IP against the CIDR list. As of the oracle-hardening change (below) this check runs *after* HMAC verification, not before: the HMAC compare is sub-microsecond, and gating it behind the secret prevents the allowlist from being used to probe key state. It remains defense-in-depth — a stolen-but-valid secret presented from a disallowed IP is still rejected. Invalid CIDRs in stored data are logged but skipped rather than failing auth (graceful degradation).
+
+### Uniform authn responses (no key-state oracle)
+
+The authn middleware verifies the HMAC secret **first**, then evaluates `Enabled`, `ExpiresAt`, and `allowed_cidrs`. Every failure path — unknown key, bad secret, disabled, expired, IP-not-allowed — returns an identical `401 invalid credentials` to the client. This prevents an unauthenticated caller (key IDs are not secret) from distinguishing which key IDs exist or learning their lifecycle/allowlist state. The real reason is preserved for operators in the `pdag_authn_total` metric labels, the OpenTelemetry span attribute `authn.result`, and debug logs — just not in the client-visible response. CIDRs are validated at the admin API boundary when set via `PUT /admin/keys/{id}/allowed-cidrs`. The field uses the same `TEXT[]` PostgreSQL type and `TextArray` Go type as `roles`.
 
 ### Trusted-proxy-aware client IP resolution
 

@@ -208,6 +208,15 @@ func TestValidateInvalidListenAddress(t *testing.T) {
 	}
 }
 
+func TestValidateShutdownWaitNonPositive(t *testing.T) {
+	for _, v := range []string{"0s", "-5s"} {
+		cfgFile := writeConfig(t, validBaseConfig(`shutdown_wait: "`+v+`"`))
+		if _, err := Load(cfgFile); err == nil {
+			t.Errorf("expected error for shutdown_wait=%s", v)
+		}
+	}
+}
+
 func TestValidateMaxBodySizeZero(t *testing.T) {
 	cfgFile := writeConfig(t, validBaseConfig(`max_body_size: 0`))
 	_, err := Load(cfgFile)

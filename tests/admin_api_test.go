@@ -168,10 +168,11 @@ func TestAdminAPIUpdateAllowedCIDRs(t *testing.T) {
 		Status(http.StatusNoContent)
 
 	// Should be denied (client IP is 127.0.0.1, not in 10.99.99.0/24).
+	// Returns a uniform 401 (oracle hardening: key state is not disclosed).
 	proxyClient(t).GET("/api/v1/servers/localhost/zones").
 		WithHeader("X-API-Key", keyID+":"+secret).
 		Expect().
-		Status(http.StatusForbidden)
+		Status(http.StatusUnauthorized)
 
 	// Clear allowed CIDRs — should work again.
 	adminClient(t).PUT("/admin/keys/{id}/allowed-cidrs").

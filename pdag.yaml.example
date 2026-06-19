@@ -33,6 +33,13 @@ audit_log: "/var/log/pdag/audit.jsonl"
                                    # saturated, so no audited action is forwarded upstream without a
                                    # durable audit record. Trades availability for audit completeness:
                                    # a sustained audit-write outage will start returning 503s.
+# audit_log_body: false            # embed the request body in audit entries (off by default)
+# audit_body_max_bytes: 8192       # cap logged body size (0 = unlimited); larger bodies are truncated
+# audit_redact_fields:             # JSON field names whose values are redacted before logging
+#   - "privatekey"
+#   - "key"
+#   - "secret"
+#   - "tsig"
 
 admin_token: "change-me-in-production"
 # admin_token_file: "/run/secrets/admin_token"  # alternative: read from file

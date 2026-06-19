@@ -24,7 +24,7 @@ var (
 
 func TestCreateAndListKeys(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key.
 	body := `{"principal":"alice","roles":["admin","read_zones"]}`
@@ -75,7 +75,7 @@ func TestCreateAndListKeys(t *testing.T) {
 
 func TestAuthRequired(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// No token.
 	req := httptest.NewRequest("GET", "/admin/keys", nil)
@@ -97,7 +97,7 @@ func TestAuthRequired(t *testing.T) {
 
 func TestDisableEnableDelete(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key first.
 	body := `{"principal":"bob","roles":["read_zones"]}`
@@ -153,7 +153,7 @@ func TestDisableEnableDelete(t *testing.T) {
 
 func TestUpdateRoles(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create.
 	body := `{"principal":"carol","roles":["read_zones"]}`
@@ -185,7 +185,7 @@ func TestUpdateRoles(t *testing.T) {
 
 func TestListKeysPagination(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create 5 keys.
 	for i := range 5 {
@@ -243,7 +243,7 @@ func TestListKeysPagination(t *testing.T) {
 
 func TestListKeysFiltering(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create keys with different principals and roles directly in store.
 	now := time.Now()
@@ -305,7 +305,7 @@ func TestListKeysFiltering(t *testing.T) {
 
 func TestRotateKey(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key.
 	body := `{"principal":"alice","roles":["admin"]}`
@@ -367,7 +367,7 @@ func TestRotateKey(t *testing.T) {
 
 func TestRotateKeyNotFound(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	req := httptest.NewRequest("POST", "/admin/keys/nonexistent/rotate", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -381,7 +381,7 @@ func TestRotateKeyNotFound(t *testing.T) {
 
 func TestPurgeExpiredKeys(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	past := time.Now().Add(-1 * time.Hour)
 	future := time.Now().Add(1 * time.Hour)
@@ -433,7 +433,7 @@ func TestPurgeExpiredKeys(t *testing.T) {
 
 func TestUpdateAllowedCIDRs(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key.
 	body := `{"principal":"alice","roles":["admin"]}`
@@ -480,7 +480,7 @@ func TestUpdateAllowedCIDRs(t *testing.T) {
 
 func TestUpdateAllowedCIDRsInvalid(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key.
 	body := `{"principal":"alice","roles":["admin"]}`
@@ -507,7 +507,7 @@ func TestUpdateAllowedCIDRsInvalid(t *testing.T) {
 
 func TestPurgeExpiredDoesNotMatchSingleKeyRoute(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// DELETE /admin/keys/expired should not be routed to deleteKey with id="expired".
 	req := httptest.NewRequest("DELETE", "/admin/keys/expired", nil)
@@ -523,7 +523,7 @@ func TestPurgeExpiredDoesNotMatchSingleKeyRoute(t *testing.T) {
 
 func newFullHandler() http.Handler {
 	mgr := memory.NewStore()
-	srv := admin.NewServer(":0", mgr, testKeygen, testToken)
+	srv := admin.NewServer(":0", mgr, testKeygen, testToken, nil)
 	return srv.Handler
 }
 
@@ -565,7 +565,7 @@ func TestRateLimitOnAdmin(t *testing.T) {
 
 func TestUpdateRolesEmptyRejected(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	// Create a key.
 	body := `{"principal":"alice","roles":["admin"]}`
@@ -597,7 +597,7 @@ func TestUpdateRolesEmptyRejected(t *testing.T) {
 
 func TestPrincipalTooLong(t *testing.T) {
 	mgr := memory.NewStore()
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	longPrincipal := strings.Repeat("a", 300)
 	body := fmt.Sprintf(`{"principal":%q,"roles":["admin"]}`, longPrincipal)
@@ -621,8 +621,9 @@ func (s *auditFailStore) AuditKeyEvent(_ context.Context, _, _, _ string, _, _ a
 }
 
 func TestAuditFailureBlocksCreate(t *testing.T) {
-	mgr := &auditFailStore{memory.NewStore()}
-	h := admin.Handler(mgr, testKeygen, testToken)
+	inner := memory.NewStore()
+	mgr := &auditFailStore{inner}
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	body := `{"principal":"alice","roles":["admin"]}`
 	req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
@@ -633,6 +634,12 @@ func TestAuditFailureBlocksCreate(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("create with audit failure: status = %d, want %d; body: %s", rec.Code, http.StatusInternalServerError, rec.Body.String())
 	}
+	// The just-created key must be compensated (deleted) so it is not left as an
+	// unaudited, secret-lost orphan.
+	keys, _ := inner.List(context.Background())
+	if len(keys) != 0 {
+		t.Errorf("expected created key to be deleted after audit failure, found %d keys", len(keys))
+	}
 }
 
 func TestAuditFailureBlocksDelete(t *testing.T) {
@@ -641,7 +648,7 @@ func TestAuditFailureBlocksDelete(t *testing.T) {
 		ID: "k_del", Principal: "alice", Roles: []string{"admin"}, Enabled: true,
 	})
 	mgr := &auditFailStore{inner}
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	req := httptest.NewRequest("DELETE", "/admin/keys/k_del", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -650,6 +657,32 @@ func TestAuditFailureBlocksDelete(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("delete with audit failure: status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	// The mutation applied (non-create mutations are not rolled back; the
+	// inconsistency is flagged via audit_inconsistency_total for reconciliation).
+	if got, _ := inner.GetByID(context.Background(), "k_del"); got != nil {
+		t.Error("delete should have been applied despite the audit failure")
+	}
+}
+
+func TestCreateKeyRejectsInvalidRoles(t *testing.T) {
+	h := newFullHandler()
+	cases := map[string]string{
+		"empty role list": `{"principal":"a","roles":[]}`,
+		"blank role":      `{"principal":"a","roles":["admin","  "]}`,
+		"over-long role":  `{"principal":"a","roles":["` + strings.Repeat("x", 129) + `"]}`,
+		"too many roles":  `{"principal":"a","roles":[` + strings.Repeat(`"r",`, 64) + `"r65"]}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer test-token")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -660,7 +693,7 @@ func TestAuditFailureBlocksRotate(t *testing.T) {
 		Roles: []string{"admin"}, Enabled: true,
 	})
 	mgr := &auditFailStore{inner}
-	h := admin.Handler(mgr, testKeygen, testToken)
+	h := admin.Handler(mgr, testKeygen, testToken, nil)
 
 	req := httptest.NewRequest("POST", "/admin/keys/k_rot/rotate", nil)
 	req.Header.Set("Authorization", "Bearer test-token")

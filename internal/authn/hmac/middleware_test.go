@@ -144,6 +144,42 @@ func TestAuthnMiddleware(t *testing.T) {
 	}
 }
 
+// TestAuthnMiddlewareNoStateOracle verifies that unknown, disabled, expired, and
+// bad-secret keys all return an IDENTICAL response (same status AND body), so an
+// unauthenticated caller cannot distinguish key states (oracle hardening, #4).
+func TestAuthnMiddlewareNoStateOracle(t *testing.T) {
+	s, cfg := setupTest(t)
+	resolver, _ := clientip.New(nil)
+	handler := middleware.RequestID(Middleware(s, cfg, resolver)(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })))
+
+	// Disabled/expired keys are probed WITHOUT the correct secret — pre-fix these
+	// leaked "key disabled"/"key expired"; now they must look like any bad guess.
+	apiKeys := []string{
+		"k_unknown:pdg_whatever",
+		"k_valid:pdg_wrongsecret",
+		"k_disabled:pdg_wrongsecret",
+		"k_expired:pdg_wrongsecret",
+	}
+
+	var bodies []string
+	for _, ak := range apiKeys {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("X-API-Key", ak)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, want 401", ak, rec.Code)
+		}
+		bodies = append(bodies, rec.Body.String())
+	}
+	for i := 1; i < len(bodies); i++ {
+		if bodies[i] != bodies[0] {
+			t.Errorf("response body differs between key states (oracle leak): %q vs %q", bodies[0], bodies[i])
+		}
+	}
+}
+
 // TestAuthnMiddlewareAllowlist verifies that the per-key allowed_cidrs check
 // uses the trusted-proxy-aware client IP: behind a trusted proxy the real
 // client (from X-Forwarded-For) is matched, while a spoofed XFF from an
@@ -178,7 +214,7 @@ func TestAuthnMiddlewareAllowlist(t *testing.T) {
 		{
 			name:       "direct client not in allowlist",
 			remoteAddr: "198.51.100.9:5555",
-			wantStatus: http.StatusForbidden,
+			wantStatus: http.StatusUnauthorized, // uniform 401 (oracle hardening)
 		},
 		{
 			name:       "trusted proxy forwards allowed client",
@@ -192,14 +228,14 @@ func TestAuthnMiddlewareAllowlist(t *testing.T) {
 			trusted:    []string{"10.0.0.0/8"},
 			remoteAddr: "10.0.0.1:5555",
 			xff:        "198.51.100.9",
-			wantStatus: http.StatusForbidden,
+			wantStatus: http.StatusUnauthorized, // uniform 401 (oracle hardening)
 		},
 		{
 			name:       "untrusted peer cannot spoof XFF",
 			trusted:    nil, // no trusted proxies → XFF ignored, peer used
 			remoteAddr: "198.51.100.9:5555",
-			xff:        "203.0.113.7", // spoofed
-			wantStatus: http.StatusForbidden,
+			xff:        "203.0.113.7",           // spoofed
+			wantStatus: http.StatusUnauthorized, // uniform 401 (oracle hardening)
 		},
 	}
 

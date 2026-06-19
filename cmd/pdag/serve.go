@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -107,7 +108,16 @@ func runServe() error {
 		slog.Info("trusted proxies configured for client IP resolution", "count", len(cfg.TrustedProxies))
 	}
 
-	auditOpts := audit.Options{LogBody: cfg.AuditLogBody, FailClosed: cfg.AuditFailClosed}
+	redactFields := make(map[string]bool, len(cfg.AuditRedactFields))
+	for _, f := range cfg.AuditRedactFields {
+		redactFields[strings.ToLower(f)] = true
+	}
+	auditOpts := audit.Options{
+		LogBody:      cfg.AuditLogBody,
+		FailClosed:   cfg.AuditFailClosed,
+		BodyMaxBytes: cfg.AuditBodyMaxBytes,
+		RedactFields: redactFields,
+	}
 	proxySrv := newProxyServer(cfg.Listen, cfg.MaxBodySize, auditOpts, limiter, backend, keyStore, auditPub, pluginMgr, hmacService, resolver)
 
 	// Extract current HMAC secret for admin key generation.
@@ -117,8 +127,14 @@ func runServe() error {
 	}
 	keygen := adminhmac.NewGenerator(currentHmac.ID, currentHmac.Secret)
 
+	// Roles backed by a configured authz plugin — used to warn on unknown roles.
+	knownRoles := make(map[string]bool, len(cfg.Plugins))
+	for name := range cfg.Plugins {
+		knownRoles[name] = true
+	}
+
 	metricsSrv := metrics.NewServer(cfg.Metrics.Listen)
-	adminSrv := newAdminServer(cfg.Admin.Listen, cfg.AdminToken, keygen, keyStore)
+	adminSrv := newAdminServer(cfg.Admin.Listen, cfg.AdminToken, keygen, keyStore, knownRoles)
 
 	// Create the signal context shared by all background goroutines.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -279,7 +295,7 @@ func newProxyServer(listenAddr string, maxBodySize int64, auditOpts audit.Option
 	}
 }
 
-func newAdminServer(listenAddr, adminToken string, keygen admin.KeyGenerator, keyStore store.KeyStore) *http.Server {
+func newAdminServer(listenAddr, adminToken string, keygen admin.KeyGenerator, keyStore store.KeyStore, knownRoles map[string]bool) *http.Server {
 	if adminToken == "" {
 		return nil
 	}
@@ -291,7 +307,7 @@ func newAdminServer(listenAddr, adminToken string, keygen admin.KeyGenerator, ke
 	}
 
 	slog.Info("admin API enabled", "listen", listenAddr)
-	return admin.NewServer(listenAddr, keyMgr, keygen, adminToken)
+	return admin.NewServer(listenAddr, keyMgr, keygen, adminToken, knownRoles)
 }
 
 func readinessCheck(ks store.KeyStore, pluginMgr *authzplugin.Manager, lb proxy.Backend) http.HandlerFunc {

@@ -52,6 +52,18 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service, resolver *c
 				trace.WithAttributes(attribute.String("authn.key_id", keyID)),
 			)
 
+			// deny emits an identical generic 401 to the client for every
+			// authentication failure (unknown key, bad secret, disabled,
+			// expired, IP-not-allowed) so none can be used as a key-state
+			// oracle, while keeping the real reason in metrics/span/logs.
+			deny := func(label string) {
+				metrics.AuthnTotal.WithLabelValues(label).Inc()
+				span.SetAttributes(attribute.String("authn.result", label))
+				span.End()
+				slog.Debug("authentication rejected", "request_id", requestID, "key_id", keyID, "reason", label)
+				http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			}
+
 			start := time.Now()
 			rec, err := keyStore.GetByID(authnCtx, keyID)
 			metrics.KeyStoreQueryDuration.Observe(time.Since(start).Seconds())
@@ -67,23 +79,44 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service, resolver *c
 				return
 			}
 			if rec == nil {
-				metrics.AuthnTotal.WithLabelValues("unknown_key").Inc()
-				span.SetAttributes(attribute.String("authn.result", "unknown_key"))
-				span.End()
-				slog.Debug("unknown key ID", "request_id", requestID, "key_id", keyID)
-				http.Error(w, "invalid credentials", http.StatusUnauthorized)
+				deny("unknown_key")
 				return
 			}
 
-			// Check IP allowlist before more expensive checks.
+			// Verify the secret FIRST. Key lifecycle/allowlist state must never
+			// be disclosed to a caller who has not proven knowledge of the
+			// secret, so every subsequent check returns the same generic 401.
+			if err := authnService.Authenticate(secret, rec); err != nil {
+				span.RecordError(err)
+				if errors.Is(err, authn.ErrInvalidCredentials) {
+					deny("invalid_credentials")
+				} else {
+					// Internal/config error (e.g. unknown hmac_key_id): not a
+					// credential guess, surface as 500.
+					metrics.AuthnTotal.WithLabelValues("authn_error").Inc()
+					span.SetStatus(codes.Error, "authentication failed")
+					span.End()
+					slog.Error("authentication failed", "request_id", requestID, "key_id", keyID, "error", err)
+					http.Error(w, "internal error", http.StatusInternalServerError)
+				}
+				return
+			}
+
+			if !rec.Enabled {
+				deny("disabled")
+				return
+			}
+
+			if rec.ExpiresAt != nil && rec.ExpiresAt.Before(time.Now()) {
+				deny("expired")
+				return
+			}
+
+			// IP allowlist (defense-in-depth: enforced even with a valid secret).
 			if len(rec.AllowedCIDRs) > 0 {
 				clientIP := resolver.ClientIP(r)
 				if clientIP == nil {
-					metrics.AuthnTotal.WithLabelValues("invalid_source_ip").Inc()
-					span.SetAttributes(attribute.String("authn.result", "invalid_source_ip"))
-					span.End()
-					slog.Debug("invalid source IP", "request_id", requestID, "key_id", keyID, "remote_addr", r.RemoteAddr)
-					http.Error(w, "invalid source IP", http.StatusForbidden)
+					deny("invalid_source_ip")
 					return
 				}
 				allowed := false
@@ -99,49 +132,9 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service, resolver *c
 					}
 				}
 				if !allowed {
-					metrics.AuthnTotal.WithLabelValues("ip_not_allowed").Inc()
-					span.SetAttributes(attribute.String("authn.result", "ip_not_allowed"))
-					span.End()
-					slog.Debug("IP not in allowlist", "request_id", requestID, "key_id", keyID, "source_ip", clientIP.String())
-					http.Error(w, "ip not allowed", http.StatusForbidden)
+					deny("ip_not_allowed")
 					return
 				}
-			}
-
-			if !rec.Enabled {
-				metrics.AuthnTotal.WithLabelValues("disabled").Inc()
-				span.SetAttributes(attribute.String("authn.result", "disabled"))
-				span.End()
-				slog.Debug("disabled key", "request_id", requestID, "key_id", keyID)
-				http.Error(w, "key disabled", http.StatusUnauthorized)
-				return
-			}
-
-			if rec.ExpiresAt != nil && rec.ExpiresAt.Before(time.Now()) {
-				metrics.AuthnTotal.WithLabelValues("expired").Inc()
-				span.SetAttributes(attribute.String("authn.result", "expired"))
-				span.End()
-				slog.Debug("expired key", "request_id", requestID, "key_id", keyID)
-				http.Error(w, "key expired", http.StatusUnauthorized)
-				return
-			}
-
-			if err := authnService.Authenticate(secret, rec); err != nil {
-				span.RecordError(err)
-				if errors.Is(err, authn.ErrInvalidCredentials) {
-					metrics.AuthnTotal.WithLabelValues("invalid_credentials").Inc()
-					span.SetAttributes(attribute.String("authn.result", "invalid_credentials"))
-					span.End()
-					slog.Debug("invalid key secret", "request_id", requestID, "key_id", keyID)
-					http.Error(w, "invalid credentials", http.StatusUnauthorized)
-				} else {
-					metrics.AuthnTotal.WithLabelValues("authn_error").Inc()
-					span.SetStatus(codes.Error, "authentication failed")
-					span.End()
-					slog.Error("authentication failed", "request_id", requestID, "key_id", keyID, "error", err)
-					http.Error(w, "internal error", http.StatusInternalServerError)
-				}
-				return
 			}
 
 			metrics.AuthnTotal.WithLabelValues("success").Inc()

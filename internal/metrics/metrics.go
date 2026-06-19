@@ -111,6 +111,12 @@ var (
 		Help:      "Audit log reopen (SIGHUP) failures; the previous file is kept so no entries are lost.",
 	})
 
+	AuditInconsistencyTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "pdag",
+		Name:      "audit_inconsistency_total",
+		Help:      "Admin key mutations applied but not audited (audit write failed after the mutation committed); requires operator reconciliation.",
+	})
+
 	// Operational metrics
 	SighupTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "pdag",
