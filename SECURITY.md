@@ -3,8 +3,13 @@
 PDAG (PowerDNS Audit Gateway) is a reverse proxy that adds authentication,
 authorization, and audit logging in front of the PowerDNS Authoritative API.
 Because it gatekeeps DNS administration, its security posture is a first-class
-concern. This document describes supported versions, how to report
-vulnerabilities, the security model, and the hardening we expect of operators.
+concern. This document describes how to report vulnerabilities, the security
+model, and the hardening we expect of operators.
+
+> **Use at your own risk.** This is a personal, best-effort project provided
+> "as is", without warranty of any kind and with no guaranteed support, SLA, or
+> coordinated-disclosure process (see the Apache-2.0 [`LICENSE`](LICENSE)).
+> Evaluate it yourself before relying on it.
 
 For the full attacker-model analysis and per-component trust boundaries, see
 [`docs/threat_model.md`](docs/threat_model.md). For architecture and the request
@@ -26,27 +31,17 @@ version-support matrix.
 
 ## Reporting a Vulnerability
 
-Please report security issues **privately** — do not open a public GitHub issue,
-pull request, or discussion for anything that may be exploitable.
+Found a security issue? Either is fine:
 
-> **Placeholder — fill these in before publishing.** The contact details below
-> are examples and must be replaced with real channels for this repository.
+- **Open a GitHub issue** on this repository, or
+- **Email the maintainer** at the address on the
+  [@FlorianMai1](https://github.com/FlorianMai1) GitHub profile.
 
-- **Preferred:** open a private report via GitHub Security Advisories
-  ("Report a vulnerability" under the repository's *Security* tab).
-- **Email:** `security@example.com` *(placeholder — replace with the real
-  security contact)*.
-
-When reporting, please include:
-
-- a description of the vulnerability and its impact,
-- the affected component (proxy, admin API, a plugin, the audit pipeline, etc.),
-- steps to reproduce or a proof of concept,
-- the commit hash you observed it on.
-
-We will acknowledge receipt, investigate, and coordinate a fix and disclosure
-timeline with you. Please give us a reasonable window to remediate before any
-public disclosure.
+There is no embargo or formal coordinated-disclosure process — this is a
+hobby project, so reports are handled on a best-effort basis with no guaranteed
+response time. A helpful report includes the affected component (proxy, admin
+API, a plugin, the audit pipeline, …), steps to reproduce, and the commit hash
+you saw it on.
 
 ## Security Model
 
