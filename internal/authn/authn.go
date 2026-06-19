@@ -15,4 +15,9 @@ type Service interface {
 	// for the given key record. Returns ErrInvalidCredentials on mismatch,
 	// or another error for internal failures (e.g. missing HMAC secret).
 	Authenticate(secret string, rec *store.KeyRecord) error
+
+	// DummyVerify performs the same constant-work verification as Authenticate
+	// but against a fixed decoy, discarding the result. It is called on the
+	// unknown-key path so latency does not reveal whether a key ID exists.
+	DummyVerify(secret string)
 }

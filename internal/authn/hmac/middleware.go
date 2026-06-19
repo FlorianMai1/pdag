@@ -79,6 +79,9 @@ func Middleware(keyStore store.KeyStore, authnService authn.Service, resolver *c
 				return
 			}
 			if rec == nil {
+				// Do equivalent HMAC work so an unknown key ID is not
+				// distinguishable from a known one by response latency.
+				authnService.DummyVerify(secret)
 				deny("unknown_key")
 				return
 			}

@@ -2,11 +2,15 @@ package plugin
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-plugin"
+
 	pb "github.com/mai/pdag/proto/authz"
+	"github.com/mai/pdag/sdk"
 )
 
 // blockingAuthorizer blocks until the call context is done, then returns the
@@ -50,6 +54,34 @@ func TestCallPluginCanceledDoesNotRecordFailure(t *testing.T) {
 	}
 	if got := inst.breaker.State(); got != StateClosed {
 		t.Errorf("breaker state = %v, want Closed (cancellation must not record a failure)", got)
+	}
+}
+
+// TestHealthyExcludesOpenBreaker verifies that a live plugin whose breaker is
+// Open is reported unhealthy (so /readyz reflects an all-denying gateway).
+func TestHealthyExcludesOpenBreaker(t *testing.T) {
+	// An unstarted client: Exited() is false (alive) without launching a process.
+	client := plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig:  sdk.Handshake,
+		Plugins:          map[string]plugin.Plugin{"authorizer": &sdk.AuthorizerPlugin{}},
+		Cmd:              exec.Command("/bin/true"),
+		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
+	})
+	defer client.Kill()
+
+	inst := &pluginInstance{
+		client:  client,
+		breaker: NewCircuitBreaker("p", 1, 2, time.Hour), // failure threshold 1
+	}
+	m := &Manager{}
+	m.plugins.Store(&pluginMap{m: map[string]*pluginInstance{"p": inst}})
+
+	if !m.Healthy() {
+		t.Fatal("an alive plugin with a Closed breaker should be healthy")
+	}
+	inst.breaker.RecordFailure() // trips the breaker Open
+	if m.Healthy() {
+		t.Error("a plugin with an Open breaker must not count as healthy")
 	}
 }
 

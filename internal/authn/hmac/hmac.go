@@ -44,7 +44,27 @@ func (h *HmacService) verify(providedApiKey string, storedHash string, hmacSecre
 	if err != nil {
 		return false, fmt.Errorf("decode stored hash: %w", err)
 	}
+	// A stored hash must be exactly one SHA-256 digest. Reject any other length
+	// explicitly (as an invalid credential) rather than relying on hmac.Equal's
+	// length-mismatch behavior to make the invariant accidental.
+	if len(expected) != sha256.Size {
+		return false, nil
+	}
 	mac := hmac.New(sha256.New, []byte(hmacSecret))
 	mac.Write([]byte(providedApiKey))
 	return hmac.Equal(mac.Sum(nil), expected), nil
+}
+
+// decoySecret and decoyHash drive DummyVerify's constant-work HMAC.
+var (
+	decoySecret = []byte("pdag-decoy-hmac-secret")
+	decoyHash   = make([]byte, sha256.Size)
+)
+
+// DummyVerify performs an HMAC compare against a fixed decoy and discards the
+// result, so the unknown-key path does work comparable to a real verification.
+func (h *HmacService) DummyVerify(secret string) {
+	mac := hmac.New(sha256.New, decoySecret)
+	mac.Write([]byte(secret))
+	_ = hmac.Equal(mac.Sum(nil), decoyHash)
 }

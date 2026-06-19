@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -104,9 +105,18 @@ func startPlugin(name string, pc authz.PluginConfig) (*pluginInstance, error) {
 		slog.Warn("could not hash plugin binary", "plugin", name, "path", pc.Path, "error", err)
 	} else {
 		slog.Info("plugin binary loaded", "plugin", name, "path", pc.Path, "sha256", binHash)
-		if pc.SHA256 != "" && binHash != pc.SHA256 {
+		// EqualFold so an uppercase-hex configured hash still matches the
+		// lowercase computed digest.
+		if pc.SHA256 != "" && !strings.EqualFold(binHash, pc.SHA256) {
 			return nil, fmt.Errorf("plugin %q hash mismatch: expected %s, got %s", name, pc.SHA256, binHash)
 		}
+	}
+
+	// The binary is exec'd as the trusted gateway, so a group/world-writable
+	// file is an RCE vector (and a TOCTOU window against the SHA256 check).
+	// Refuse to launch one; the plugin dir should be root-owned and non-writable.
+	if info, statErr := os.Stat(pc.Path); statErr == nil && info.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("plugin %q binary %q is group/world-writable (%#o); make it non-writable", name, pc.Path, info.Mode().Perm())
 	}
 
 	client := plugin.NewClient(&plugin.ClientConfig{
@@ -392,11 +402,13 @@ func (m *Manager) HasPlugins() bool {
 	return len(m.plugins.Load().m) > 0
 }
 
-// Healthy returns true if at least one plugin process is alive and not
-// permanently failed. Used by the readiness probe.
+// Healthy returns true if at least one plugin can actually serve requests:
+// alive, not permanently failed, and with a circuit breaker that is not Open.
+// A breaker-Open plugin denies every request, so counting it as healthy would
+// let the readiness probe mask an all-denying gateway. Used by /readyz.
 func (m *Manager) Healthy() bool {
 	for _, inst := range m.plugins.Load().m {
-		if !inst.failed.Load() && !inst.client.Exited() {
+		if !inst.failed.Load() && !inst.client.Exited() && inst.breaker.State() != StateOpen {
 			return true
 		}
 	}

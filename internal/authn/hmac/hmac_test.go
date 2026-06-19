@@ -68,3 +68,19 @@ func TestAuthenticateInvalidHex(t *testing.T) {
 		t.Error("corrupt hash should be internal error, not ErrInvalidCredentials")
 	}
 }
+
+func TestAuthenticateWrongLengthHash(t *testing.T) {
+	svc := &HmacService{
+		secretMap: map[string]string{"v1": "secret"},
+	}
+	// Valid hex but not a 32-byte SHA-256 digest.
+	rec := &store.KeyRecord{
+		KeyHash:   "abcd",
+		HmacKeyID: "v1",
+	}
+
+	err := svc.Authenticate("plain", rec)
+	if !errors.Is(err, authn.ErrInvalidCredentials) {
+		t.Errorf("short stored hash should be ErrInvalidCredentials, got %v", err)
+	}
+}

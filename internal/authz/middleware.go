@@ -7,6 +7,15 @@ import (
 	"github.com/mai/pdag/sdk"
 )
 
+// sensitiveHeaders (canonical form) are stripped from the request before it is
+// handed to plugins, so credentials never reach plugin binaries.
+var sensitiveHeaders = map[string]bool{
+	"X-Api-Key":           true,
+	"Authorization":       true,
+	"Cookie":              true,
+	"Proxy-Authorization": true,
+}
+
 // Middleware returns an HTTP middleware that performs plugin-based authorization.
 // It reads the principal's roles from the context (set by authn middleware),
 // converts the request to protobuf, and fans out to all assigned plugins.
@@ -38,9 +47,10 @@ func Middleware(authz Authorizer) func(http.Handler) http.Handler {
 			principal := middleware.GetPrincipal(r.Context())
 			pbReq := sdk.StdlibToHttpRequest(r, body, reqID, principal)
 
-			// Redact sensitive headers before sending to plugins.
+			// Redact sensitive headers before sending to plugins so no secret
+			// is fanned out to every plugin binary.
 			for i, h := range pbReq.Headers {
-				if http.CanonicalHeaderKey(h.Key) == "X-Api-Key" {
+				if sensitiveHeaders[http.CanonicalHeaderKey(h.Key)] {
 					pbReq.Headers[i].Values = []string{"REDACTED"}
 				}
 			}
