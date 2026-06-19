@@ -3,8 +3,8 @@ package ratelimit
 import (
 	"net/http"
 
-	"github.com/mai/pdag/internal/metrics"
-	"github.com/mai/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/middleware"
 )
 
 // Middleware returns an HTTP middleware that rate-limits requests per principal.

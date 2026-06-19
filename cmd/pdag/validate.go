@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mai/pdag/internal/config"
+	"github.com/FlorianMai1/pdag/internal/config"
 )
 
 func runValidate() error {

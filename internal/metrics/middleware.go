@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mai/pdag/internal/httproute"
-	"github.com/mai/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/httproute"
+	"github.com/FlorianMai1/pdag/internal/middleware"
 )
 
 // Middleware instruments HTTP requests with Prometheus metrics.

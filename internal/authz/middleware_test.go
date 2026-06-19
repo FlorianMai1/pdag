@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mai/pdag/internal/middleware"
-	pb "github.com/mai/pdag/proto/authz"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 // stubAuthorizer implements Authorizer for testing.

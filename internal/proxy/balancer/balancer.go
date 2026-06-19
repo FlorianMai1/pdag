@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mai/pdag/internal/middleware"
-	"github.com/mai/pdag/internal/proxy"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/proxy"
 )
 
 var _ proxy.Backend = (*Balancer)(nil)

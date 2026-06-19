@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/mai/pdag/proto/authz"
-	"github.com/mai/pdag/sdk"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
+	"github.com/FlorianMai1/pdag/sdk"
 )
 
 type challengerPlugin struct{}

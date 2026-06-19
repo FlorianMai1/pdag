@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pb "github.com/mai/pdag/proto/authz"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 func TestAllowsPUTNotify(t *testing.T) {

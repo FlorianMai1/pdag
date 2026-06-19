@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	pb "github.com/mai/pdag/proto/authz"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 func makeBody(t *testing.T, patch rrsetPatch) []byte {

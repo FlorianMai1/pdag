@@ -22,10 +22,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/mai/pdag/internal/authz"
-	"github.com/mai/pdag/internal/metrics"
-	pb "github.com/mai/pdag/proto/authz"
-	"github.com/mai/pdag/sdk"
+	"github.com/FlorianMai1/pdag/internal/authz"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
+	"github.com/FlorianMai1/pdag/sdk"
 )
 
 // Compile-time interface check.

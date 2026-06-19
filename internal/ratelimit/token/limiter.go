@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mai/pdag/internal/ratelimit"
+	"github.com/FlorianMai1/pdag/internal/ratelimit"
 )
 
 // Compile-time interface check.

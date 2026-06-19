@@ -9,8 +9,8 @@ import (
 
 	"github.com/hashicorp/go-plugin"
 
-	pb "github.com/mai/pdag/proto/authz"
-	"github.com/mai/pdag/sdk"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
+	"github.com/FlorianMai1/pdag/sdk"
 )
 
 // blockingAuthorizer blocks until the call context is done, then returns the

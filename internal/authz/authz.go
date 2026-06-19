@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/mai/pdag/proto/authz"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 // Authorizer evaluates authorization decisions for a set of roles.

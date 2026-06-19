@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mai/pdag/internal/metrics"
-	"github.com/mai/pdag/internal/ratelimit"
-	"github.com/mai/pdag/internal/ratelimit/token"
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/ratelimit"
+	"github.com/FlorianMai1/pdag/internal/ratelimit/token"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 const adminMaxBodyBytes = 64 * 1024 // 64 KiB

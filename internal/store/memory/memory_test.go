@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 func TestStoreCRUD(t *testing.T) {

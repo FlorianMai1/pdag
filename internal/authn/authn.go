@@ -3,7 +3,7 @@ package authn
 import (
 	"errors"
 
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 // ErrInvalidCredentials is returned when the provided API key does not match.

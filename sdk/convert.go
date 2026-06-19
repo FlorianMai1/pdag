@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	pb "github.com/mai/pdag/proto/authz"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 // HttpRequestToStdlib converts a protobuf HttpRequest back to a standard *http.Request.

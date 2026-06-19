@@ -3,8 +3,8 @@ package authz
 import (
 	"net/http"
 
-	"github.com/mai/pdag/internal/middleware"
-	"github.com/mai/pdag/sdk"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/sdk"
 )
 
 // sensitiveHeaders (canonical form) are stripped from the request before it is

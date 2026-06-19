@@ -136,7 +136,8 @@ PDAG exposes Prometheus metrics on the metrics server (`:9090`) covering request
 latencies, authorization decisions, audit pipeline health, and circuit-breaker state.
 OpenTelemetry tracing can be enabled in the `tracing` section of the config to export
 spans to an OTLP collector. See [`docs/metrics.md`](docs/metrics.md) for the metric
-catalogue and dashboard guidance.
+catalogue and dashboard guidance, and [`docs/BENCH_RESULTS.md`](docs/BENCH_RESULTS.md)
+for throughput benchmarks.
 
 ## Security
 
@@ -161,3 +162,11 @@ are in [`docs/contributing.md`](docs/contributing.md) and [`CLAUDE.md`](CLAUDE.m
 ## License
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).
+
+## AI assistance
+
+PDAG was developed with significant help from an AI coding assistant
+(Anthropic's Claude Code), under human direction, design decisions, and review.
+It is noted here in the interest of transparency. Anthropic does not claim
+ownership of the generated output; the project is offered under the Apache-2.0
+license above.

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	adminhmac "github.com/mai/pdag/internal/admin/hmac"
-	"github.com/mai/pdag/internal/config"
-	"github.com/mai/pdag/internal/store"
-	"github.com/mai/pdag/internal/store/postgres"
+	adminhmac "github.com/FlorianMai1/pdag/internal/admin/hmac"
+	"github.com/FlorianMai1/pdag/internal/config"
+	"github.com/FlorianMai1/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store/postgres"
 )
 
 func runKey() error {

@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mai/pdag/internal/middleware"
-	"github.com/mai/pdag/internal/ratelimit"
-	"github.com/mai/pdag/internal/ratelimit/token"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/ratelimit"
+	"github.com/FlorianMai1/pdag/internal/ratelimit/token"
 )
 
 func TestMiddlewareAllows(t *testing.T) {

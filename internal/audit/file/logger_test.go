@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mai/pdag/internal/audit"
+	"github.com/FlorianMai1/pdag/internal/audit"
 )
 
 func TestLoggerWritesJSON(t *testing.T) {

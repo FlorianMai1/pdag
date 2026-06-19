@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 // Compile-time interface checks.

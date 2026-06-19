@@ -8,8 +8,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/mai/pdag/internal/metrics"
-	"github.com/mai/pdag/internal/proxy"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/proxy"
 )
 
 var _ proxy.Backend = (*Backend)(nil)

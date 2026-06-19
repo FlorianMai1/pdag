@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mai/pdag/internal/clientip"
-	"github.com/mai/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/clientip"
+	"github.com/FlorianMai1/pdag/internal/middleware"
 )
 
 // testResolver has no trusted proxies, so it resolves the client IP straight

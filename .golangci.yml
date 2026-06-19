@@ -25,7 +25,7 @@ linters-settings:
       - shadow
 
   goimports:
-    local-prefixes: github.com/mai/pdag
+    local-prefixes: github.com/FlorianMai1/pdag
 
   misspell:
     locale: US

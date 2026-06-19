@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 
-	pb "github.com/mai/pdag/proto/authz"
+	pb "github.com/FlorianMai1/pdag/proto/authz"
 )
 
 // Handshake is the shared handshake config between PDAG and plugins.

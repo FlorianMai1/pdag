@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mai/pdag/internal/admin"
-	adminhmac "github.com/mai/pdag/internal/admin/hmac"
-	"github.com/mai/pdag/internal/store"
-	"github.com/mai/pdag/internal/store/memory"
+	"github.com/FlorianMai1/pdag/internal/admin"
+	adminhmac "github.com/FlorianMai1/pdag/internal/admin/hmac"
+	"github.com/FlorianMai1/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store/memory"
 )
 
 var (

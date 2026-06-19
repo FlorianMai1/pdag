@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	adminhmac "github.com/mai/pdag/internal/admin/hmac"
-	"github.com/mai/pdag/internal/authn"
-	"github.com/mai/pdag/internal/store"
+	adminhmac "github.com/FlorianMai1/pdag/internal/admin/hmac"
+	"github.com/FlorianMai1/pdag/internal/authn"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 func TestAuthenticate(t *testing.T) {

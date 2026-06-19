@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mai/pdag/internal/clientip"
-	"github.com/mai/pdag/internal/metrics"
-	"github.com/mai/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/clientip"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/middleware"
 )
 
 // Options configures the audit middleware.

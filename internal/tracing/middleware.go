@@ -9,8 +9,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/mai/pdag/internal/httproute"
-	"github.com/mai/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/httproute"
+	"github.com/FlorianMai1/pdag/internal/middleware"
 )
 
 // Middleware creates a root span for each HTTP request and extracts incoming

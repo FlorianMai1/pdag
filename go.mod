@@ -1,4 +1,4 @@
-module github.com/mai/pdag
+module github.com/FlorianMai1/pdag
 
 go 1.26.0
 

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mai/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/metrics"
 )
 
 // CBState represents the state of a circuit breaker.

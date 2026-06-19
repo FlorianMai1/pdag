@@ -14,7 +14,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 // Compile-time interface checks.

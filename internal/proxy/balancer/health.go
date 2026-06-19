@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mai/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/metrics"
 )
 
 // healthLoop periodically checks each backend's health endpoint.

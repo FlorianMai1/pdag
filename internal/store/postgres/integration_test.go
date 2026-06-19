@@ -8,8 +8,8 @@ import (
 
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/mai/pdag/internal/store"
-	pgstore "github.com/mai/pdag/internal/store/postgres"
+	"github.com/FlorianMai1/pdag/internal/store"
+	pgstore "github.com/FlorianMai1/pdag/internal/store/postgres"
 )
 
 // newTestStore spins up a throwaway Postgres container, runs migrations, and

@@ -12,3 +12,7 @@ plugins/api_discovery/api_discovery
 tests/pdag-e2e-*.yaml
 !tests/pdag-e2e.yaml
 !tests/pdag-e2e-ratelimit.yaml
+
+# Local review/scratch artifacts (not part of the project)
+REVIEW_*.md
+REVIEW_*.json

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	adminhmac "github.com/mai/pdag/internal/admin/hmac"
-	"github.com/mai/pdag/internal/clientip"
-	"github.com/mai/pdag/internal/middleware"
-	"github.com/mai/pdag/internal/store"
-	"github.com/mai/pdag/internal/store/memory"
+	adminhmac "github.com/FlorianMai1/pdag/internal/admin/hmac"
+	"github.com/FlorianMai1/pdag/internal/clientip"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/store/memory"
 )
 
 func setupTest(t *testing.T) (*memory.Store, *HmacService) {

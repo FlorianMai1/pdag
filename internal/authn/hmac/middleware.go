@@ -13,11 +13,11 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/mai/pdag/internal/authn"
-	"github.com/mai/pdag/internal/clientip"
-	"github.com/mai/pdag/internal/metrics"
-	"github.com/mai/pdag/internal/middleware"
-	"github.com/mai/pdag/internal/store"
+	"github.com/FlorianMai1/pdag/internal/authn"
+	"github.com/FlorianMai1/pdag/internal/clientip"
+	"github.com/FlorianMai1/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/middleware"
+	"github.com/FlorianMai1/pdag/internal/store"
 )
 
 // Middleware returns an HTTP middleware that authenticates requests via the

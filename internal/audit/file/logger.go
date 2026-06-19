@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mai/pdag/internal/audit"
-	"github.com/mai/pdag/internal/metrics"
+	"github.com/FlorianMai1/pdag/internal/audit"
+	"github.com/FlorianMai1/pdag/internal/metrics"
 )
 
 // Compile-time interface checks.

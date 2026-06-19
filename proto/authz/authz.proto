@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package pdag.authz;
 
-option go_package = "github.com/mai/pdag/proto/authz";
+option go_package = "github.com/FlorianMai1/pdag/proto/authz";
 
 service Authorizer {
   rpc Authorize(HttpRequest) returns (AuthorizeResponse);

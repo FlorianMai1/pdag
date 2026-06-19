@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/mai/pdag/internal/admin"
+	"github.com/FlorianMai1/pdag/internal/admin"
 )
 
 // Compile-time interface check.

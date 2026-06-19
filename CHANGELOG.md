@@ -52,4 +52,4 @@ release-readiness work.
 - Numerous robustness fixes: body-size early reject, rate-limiter eviction,
   pgarray NULL/whitespace handling, memory-store paging bounds, and more.
 
-[Unreleased]: https://github.com/mai/pdag/compare/main...HEAD
+[Unreleased]: https://github.com/FlorianMai1/pdag/compare/main...HEAD
