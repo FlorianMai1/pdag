@@ -1,6 +1,6 @@
 module github.com/FlorianMai1/pdag
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/docker/go-connections v0.6.0
