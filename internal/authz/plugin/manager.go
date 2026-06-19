@@ -246,6 +246,14 @@ func (m *Manager) callPlugin(ctx context.Context, name string, inst *pluginInsta
 	metrics.AuthzPluginDuration.WithLabelValues(name).Observe(duration)
 
 	if err != nil {
+		// A deliberate cancellation (a sibling plugin already returned ALLOW, so
+		// Authorize canceled the shared parent ctx) is not a plugin failure. Do
+		// not feed the circuit breaker or the error metric/log — otherwise healthy
+		// plugins that merely lost the race would trip Open over time.
+		if ctx.Err() != nil {
+			metrics.AuthzDecisionTotal.WithLabelValues(name, "canceled").Inc()
+			return "deny", fmt.Sprintf("canceled: %s", name)
+		}
 		inst.breaker.RecordFailure()
 		if callCtx.Err() == context.DeadlineExceeded {
 			metrics.AuthzDecisionTotal.WithLabelValues(name, "timeout").Inc()
