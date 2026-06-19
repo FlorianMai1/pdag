@@ -42,3 +42,30 @@ func TestNormalizePathBodyBytesMetric(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizePathDynamicTailAndUnknown(t *testing.T) {
+	tests := map[string]string{
+		// Zone sub-resource IDs must be masked (the cardinality leak).
+		"/api/v1/servers/srv1/zones/z1./cryptokeys":        "/api/v1/servers/:server_id/zones/:zone_id/cryptokeys",
+		"/api/v1/servers/srv1/zones/z1./cryptokeys/123":    "/api/v1/servers/:server_id/zones/:zone_id/cryptokeys/:cryptokey_id",
+		"/api/v1/servers/srv1/zones/z1./metadata":          "/api/v1/servers/:server_id/zones/:zone_id/metadata",
+		"/api/v1/servers/srv1/zones/z1./metadata/SOA-EDIT": "/api/v1/servers/:server_id/zones/:zone_id/metadata/:kind",
+		// Known fixed endpoints kept verbatim.
+		"/healthz": "/healthz",
+		"/readyz":  "/readyz",
+		"/":        "/",
+		// Unknown / attacker-controlled paths fold to /other.
+		"/foo/bar": "/other",
+		"/api/v1/servers/srv1/zones/z1./unknownsub":           "/other",
+		"/api/v1/servers/srv1/zones/z1./cryptokeys/123/extra": "/other",
+		"/api/v2/servers":                  "/other",
+		"/../../etc/passwd":                "/other",
+		"/api/v1/servers/srv1/cache/flush": "/other",
+	}
+
+	for path, want := range tests {
+		if got := normalizePath(path); got != want {
+			t.Errorf("normalizePath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
