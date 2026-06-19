@@ -2,19 +2,26 @@
 # Requires: golangci-lint v1.64+ (https://golangci-lint.run/usage/install/)
 
 GO       ?= go
-GOFLAGS  ?=
+GOFLAGS  ?= -trimpath
 CGO      ?= 0
 
 BIN_DIR    := bin
 PDAG       := $(BIN_DIR)/pdag
 PLUGIN_DIR := $(BIN_DIR)/plugins
 
+# ── Version stamping ─────────────────────────────────────────────
+# Derived from git; override VERSION on the command line for releases.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+
 PLUGINS    := admin read_zones zone_notify letsencrypt_dns_challenger api_discovery
 PLUGIN_BINS := $(addprefix $(PLUGIN_DIR)/,$(PLUGINS))
 
 # ── Primary targets ──────────────────────────────────────────────
 
-.PHONY: all build plugins test lint fmt vet fix proto check clean help
+.PHONY: all build plugins test lint fmt vet fix proto vuln check clean help
 
 all: build plugins
 
@@ -42,7 +49,10 @@ proto:
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		proto/authz/authz.proto
 
-check: fix fmt vet lint test
+vuln:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+check: fix fmt vet lint test vuln
 
 clean:
 	rm -rf $(BIN_DIR)
@@ -51,7 +61,7 @@ clean:
 
 $(PDAG): $(shell find cmd internal -name '*.go')
 	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=$(CGO) $(GO) build $(GOFLAGS) -o $@ ./cmd/pdag
+	CGO_ENABLED=$(CGO) $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $@ ./cmd/pdag
 
 $(PLUGIN_DIR)/%: plugins/%/main.go $(shell find sdk -name '*.go' 2>/dev/null)
 	@mkdir -p $(PLUGIN_DIR)
@@ -83,5 +93,6 @@ help:
 	@echo "  vet              Run go vet"
 	@echo "  fix              Run go fix"
 	@echo "  proto            Regenerate protobuf Go code"
-	@echo "  check            Run fix + fmt + vet + lint + test"
+	@echo "  vuln             Scan dependencies with govulncheck"
+	@echo "  check            Run fix + fmt + vet + lint + test + vuln"
 	@echo "  clean            Remove bin/"

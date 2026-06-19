@@ -46,7 +46,7 @@ func runServe() error {
 		return err
 	}
 
-	slog.Info("starting pdag", "listen", cfg.Listen, "backends", len(cfg.Upstreams.Backends), "metrics", cfg.Metrics.Listen)
+	slog.Info("starting pdag", "version", versionString(), "listen", cfg.Listen, "backends", len(cfg.Upstreams.Backends), "metrics", cfg.Metrics.Listen)
 
 	if cfg.Tracing.Enabled {
 		shutdownTracer, tracerErr := tracing.Init(context.Background(), tracing.Config{
