@@ -33,6 +33,10 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64.8
+          # Compile golangci-lint with the runner's Go (1.26 from go.mod) instead
+          # of using the prebuilt binary (built with an older Go), which refuses a
+          # module whose targeted Go version is newer than its own build toolchain.
+          install-mode: goinstall
 
       - name: unit tests (race)
         run: CGO_ENABLED=1 go test -race -count=1 ./cmd/... ./internal/... ./sdk/...
