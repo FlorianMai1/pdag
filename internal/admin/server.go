@@ -24,6 +24,22 @@ const adminMaxBodyBytes = 64 * 1024 // 64 KiB
 const maxPrincipalLen = 256
 const maxRoles = 64
 const maxRoleLen = 128
+const maxAllowedCIDRs = 256
+
+// strictDecode decodes a single JSON object from the request body, rejecting
+// unknown fields and trailing data so typo'd fields and malformed bodies fail
+// loudly rather than being silently ignored.
+func strictDecode(r *http.Request, dst any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	if dec.More() {
+		return fmt.Errorf("unexpected trailing data after JSON object")
+	}
+	return nil
+}
 
 // validateRoles trims and validates a requested role set: rejects empty/blank
 // roles, caps the count and per-role length, and (when known is non-empty) warns
@@ -221,7 +237,7 @@ type createKeyResponse struct {
 func createKey(mgr store.KeyManager, keygen KeyGenerator, knownRoles map[string]bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createKeyRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := strictDecode(r, &req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -270,6 +286,10 @@ func createKey(mgr store.KeyManager, keygen KeyGenerator, knownRoles map[string]
 			t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 			if err != nil {
 				http.Error(w, "invalid expires_at format (use RFC3339)", http.StatusBadRequest)
+				return
+			}
+			if !t.After(time.Now()) {
+				http.Error(w, "expires_at must be in the future", http.StatusBadRequest)
 				return
 			}
 			rec.ExpiresAt = &t
@@ -427,7 +447,7 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 		id := r.PathValue("id")
 
 		var req setExpiryRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := strictDecode(r, &req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -437,6 +457,10 @@ func setExpiry(mgr store.KeyManager) http.HandlerFunc {
 			t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 			if err != nil {
 				http.Error(w, "invalid expires_at format (use RFC3339)", http.StatusBadRequest)
+				return
+			}
+			if !t.After(time.Now()) {
+				http.Error(w, "expires_at must be in the future", http.StatusBadRequest)
 				return
 			}
 			expiresAt = &t
@@ -523,7 +547,7 @@ func updateRoles(mgr store.KeyManager, knownRoles map[string]bool) http.HandlerF
 		id := r.PathValue("id")
 
 		var req updateRolesRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := strictDecode(r, &req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -559,8 +583,13 @@ func updateAllowedCIDRs(mgr store.KeyManager) http.HandlerFunc {
 		id := r.PathValue("id")
 
 		var req updateAllowedCIDRsRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := strictDecode(r, &req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if len(req.AllowedCIDRs) > maxAllowedCIDRs {
+			http.Error(w, fmt.Sprintf("too many allowed_cidrs (max %d)", maxAllowedCIDRs), http.StatusBadRequest)
 			return
 		}
 

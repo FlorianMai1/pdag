@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -188,6 +189,7 @@ func Load(configPath string) (*Config, error) {
 func (c *Config) resolveSecretFiles() error {
 	resolve := func(value *string, filePath, name string) error {
 		if filePath != "" && *value == "" {
+			warnIfPermissive(filePath, name)
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				return fmt.Errorf("%s: %w", name, err)
@@ -207,14 +209,29 @@ func (c *Config) resolveSecretFiles() error {
 	}
 	for i := range c.HmacSecrets {
 		if c.HmacSecrets[i].SecretFile != "" && c.HmacSecrets[i].Secret == "" {
+			name := fmt.Sprintf("hmac_secrets[%d].secret_file", i)
+			warnIfPermissive(c.HmacSecrets[i].SecretFile, name)
 			data, err := os.ReadFile(c.HmacSecrets[i].SecretFile)
 			if err != nil {
-				return fmt.Errorf("hmac_secrets[%d].secret_file: %w", i, err)
+				return fmt.Errorf("%s: %w", name, err)
 			}
 			c.HmacSecrets[i].Secret = strings.TrimSpace(string(data))
 		}
 	}
 	return nil
+}
+
+// warnIfPermissive logs a warning when a secret file is readable by group or
+// other (perm bits & 0o077). It does not fail — common deployment setups (e.g.
+// Kubernetes secret mounts) use 0644 — but the operator should be aware.
+func warnIfPermissive(path, name string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return // the subsequent ReadFile surfaces the real error
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		slog.Warn("secret file is readable by group/other", "field", name, "path", path, "mode", fmt.Sprintf("%#o", perm))
+	}
 }
 
 func (c *Config) validate() error {
@@ -244,14 +261,19 @@ func (c *Config) validate() error {
 		}
 	}
 
-	// Port conflicts.
-	addrs := map[string]string{
-		c.Listen:         "listen",
-		c.Metrics.Listen: "metrics.listen",
-		c.Admin.Listen:   "admin.listen",
-	}
-	if len(addrs) < 3 {
-		return fmt.Errorf("two or more servers share the same listen address: check listen, metrics.listen, and admin.listen")
+	// Port conflicts — compare normalized host:port so equivalent addresses
+	// (e.g. ":8080" vs "0.0.0.0:8080") are detected, not just byte-identical ones.
+	seen := make(map[string]string, 3)
+	for _, addr := range []struct{ name, value string }{
+		{"listen", c.Listen},
+		{"metrics.listen", c.Metrics.Listen},
+		{"admin.listen", c.Admin.Listen},
+	} {
+		norm := normalizeListenAddr(addr.value)
+		if other, dup := seen[norm]; dup {
+			return fmt.Errorf("%s and %s share the same listen address %q", other, addr.name, addr.value)
+		}
+		seen[norm] = addr.name
 	}
 
 	// MaxBodySize.
@@ -381,6 +403,21 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+// normalizeListenAddr canonicalizes a host:port so equivalent wildcard forms
+// collide (":8080", "0.0.0.0:8080", "[::]:8080"). Returns the raw value if it
+// cannot be split into host:port.
+func normalizeListenAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "*"
+	}
+	return host + ":" + port
 }
 
 func validateCircuitBreaker(cb CircuitBreaker, prefix string) error {

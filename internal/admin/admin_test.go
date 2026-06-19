@@ -665,6 +665,26 @@ func TestAuditFailureBlocksDelete(t *testing.T) {
 	}
 }
 
+func TestCreateKeyRejectsUnknownFieldAndPastExpiry(t *testing.T) {
+	h := newFullHandler()
+	cases := map[string]string{
+		"unknown field":    `{"principal":"a","roles":["admin"],"bogus":1}`,
+		"trailing garbage": `{"principal":"a","roles":["admin"]}{}`,
+		"past expiry":      `{"principal":"a","roles":["admin"],"expires_at":"2000-01-01T00:00:00Z"}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/admin/keys", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer test-token")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400 (body: %s)", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestCreateKeyRejectsInvalidRoles(t *testing.T) {
 	h := newFullHandler()
 	cases := map[string]string{

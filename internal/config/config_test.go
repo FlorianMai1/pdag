@@ -208,6 +208,14 @@ func TestValidateInvalidListenAddress(t *testing.T) {
 	}
 }
 
+func TestValidatePortConflictNormalized(t *testing.T) {
+	// ":8080" and "0.0.0.0:8080" are the same bind address — must be detected.
+	cfg := validBaseConfig("listen: \":8080\"\nmetrics:\n  listen: \"0.0.0.0:8080\"\n")
+	if _, err := Load(writeConfig(t, cfg)); err == nil {
+		t.Error("expected conflict between :8080 and 0.0.0.0:8080")
+	}
+}
+
 func TestValidateShutdownWaitNonPositive(t *testing.T) {
 	for _, v := range []string{"0s", "-5s"} {
 		cfgFile := writeConfig(t, validBaseConfig(`shutdown_wait: "`+v+`"`))
