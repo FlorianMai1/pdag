@@ -1,4 +1,4 @@
-package metrics
+package httproute
 
 import "testing"
 
@@ -18,9 +18,9 @@ func TestNormalizePathTrailingSlash(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := normalizePath(tt.input)
+		got := Normalize(tt.input)
 		if got != tt.want {
-			t.Errorf("normalizePath(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("Normalize(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -36,9 +36,9 @@ func TestNormalizePathBodyBytesMetric(t *testing.T) {
 	}
 
 	for path, want := range paths {
-		got := normalizePath(path)
+		got := Normalize(path)
 		if got != want {
-			t.Errorf("normalizePath(%q) = %q, want %q", path, got, want)
+			t.Errorf("Normalize(%q) = %q, want %q", path, got, want)
 		}
 	}
 }
@@ -64,8 +64,8 @@ func TestNormalizePathDynamicTailAndUnknown(t *testing.T) {
 	}
 
 	for path, want := range tests {
-		if got := normalizePath(path); got != want {
-			t.Errorf("normalizePath(%q) = %q, want %q", path, got, want)
+		if got := Normalize(path); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q", path, got, want)
 		}
 	}
 }

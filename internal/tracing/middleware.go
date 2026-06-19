@@ -1,14 +1,15 @@
 package tracing
 
 import (
-	"fmt"
 	"net/http"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/mai/pdag/internal/httproute"
 	"github.com/mai/pdag/internal/middleware"
 )
 
@@ -21,10 +22,14 @@ func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
-		ctx, span := tracer.Start(ctx, fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+		// Use the normalized route template for the span name and http.route to
+		// keep trace cardinality bounded; the raw path goes on url.path.
+		route := httproute.Normalize(r.URL.Path)
+		ctx, span := tracer.Start(ctx, r.Method+" "+route,
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				attribute.String("http.request.method", r.Method),
+				attribute.String("http.route", route),
 				attribute.String("url.path", r.URL.Path),
 				attribute.String("client.address", r.RemoteAddr),
 			),
@@ -32,6 +37,9 @@ func Middleware(next http.Handler) http.Handler {
 		defer func() {
 			if codePtr := middleware.GetStatusCodePtr(ctx); codePtr != nil {
 				span.SetAttributes(attribute.Int("http.response.status_code", *codePtr))
+				if *codePtr >= 500 {
+					span.SetStatus(codes.Error, http.StatusText(*codePtr))
+				}
 			}
 			span.End()
 		}()
