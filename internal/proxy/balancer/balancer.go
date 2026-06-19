@@ -115,6 +115,10 @@ func New(cfg Config) (*Balancer, error) {
 				}
 
 				slog.Warn("backend error, marking unhealthy", "backend", entry.url, "error", err)
+				// A passively-marked-unhealthy backend is re-admitted only by the
+				// active health loop, so HealthCheck.Path must return 2xx for a
+				// healthy backend or it will never recover. (Request-time failures
+				// are still covered by the bounded failover in ServeHTTP.)
 				entry.healthy.Store(false)
 				if st != nil {
 					// Let ServeHTTP decide whether to fail over or write 502.
@@ -207,7 +211,6 @@ func (lb *Balancer) Close() {
 func rewriteFunc(target *url.URL, apiKey string) func(*httputil.ProxyRequest) {
 	return func(pr *httputil.ProxyRequest) {
 		contentType := pr.In.Header.Get("Content-Type")
-		contentLength := pr.In.Header.Get("Content-Length")
 		accept := pr.In.Header.Get("Accept")
 
 		for key := range pr.In.Header {
@@ -218,12 +221,11 @@ func rewriteFunc(target *url.URL, apiKey string) func(*httputil.ProxyRequest) {
 		if contentType != "" {
 			pr.Out.Header.Set("Content-Type", contentType)
 		}
-		if contentLength != "" {
-			pr.Out.Header.Set("Content-Length", contentLength)
-		}
 		if accept != "" {
 			pr.Out.Header.Set("Accept", accept)
 		}
+		// Content-Length is carried by pr.Out (cloned from the inbound request)
+		// and set by the transport; no need to copy the client-supplied header.
 
 		pr.SetURL(target)
 		pr.Out.Host = target.Host

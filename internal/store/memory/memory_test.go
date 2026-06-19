@@ -108,6 +108,22 @@ func TestStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestListPagedNegativeParamsDoNotPanic(t *testing.T) {
+	ctx := context.Background()
+	s := NewStore()
+	if err := s.Create(ctx, &store.KeyRecord{ID: "k0", Principal: "u", Roles: []string{"read"}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Negative limit/offset must be clamped, not panic.
+	if _, err := s.ListPaged(ctx, -1, -1); err != nil {
+		t.Errorf("ListPaged(-1,-1) error = %v", err)
+	}
+	if _, err := s.ListFiltered(ctx, -5, -5, "", ""); err != nil {
+		t.Errorf("ListFiltered(-5,-5) error = %v", err)
+	}
+}
+
 func TestListPaged(t *testing.T) {
 	ctx := context.Background()
 	s := NewStore()

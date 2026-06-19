@@ -103,7 +103,7 @@ func (s *Store) Create(ctx context.Context, rec *store.KeyRecord) error {
 		`INSERT INTO api_keys (id, key_hash, hmac_key_id, principal, roles, allowed_cidrs, enabled, expires_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		rec.ID, rec.KeyHash, rec.HmacKeyID, rec.Principal,
-		TextArray(rec.Roles), TextArray(coalesceStrings(rec.AllowedCIDRs)), rec.Enabled, rec.ExpiresAt,
+		TextArray(coalesceStrings(rec.Roles)), TextArray(coalesceStrings(rec.AllowedCIDRs)), rec.Enabled, rec.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create key %q: %w", rec.ID, err)

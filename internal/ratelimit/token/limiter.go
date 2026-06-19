@@ -103,7 +103,11 @@ func (l *Limiter) cleanupLoop() {
 	}
 }
 
-// cleanup removes buckets idle longer than staleThreshold.
+// cleanup removes buckets idle longer than staleThreshold. It re-checks
+// staleness under the bucket lock and deletes via CompareAndDelete so a bucket
+// refreshed by a racing Allow (between the staleness read and the delete) is
+// never clobbered — Allow re-LoadOrStores, so an evicted active principal just
+// gets a fresh bucket.
 func (l *Limiter) cleanup(now time.Time) {
 	l.buckets.Range(func(key, val any) bool {
 		b := val.(*bucket)
@@ -111,7 +115,7 @@ func (l *Limiter) cleanup(now time.Time) {
 		stale := now.Sub(b.lastCheck) > staleThreshold
 		b.mu.Unlock()
 		if stale {
-			l.buckets.Delete(key)
+			l.buckets.CompareAndDelete(key, val)
 		}
 		return true
 	})

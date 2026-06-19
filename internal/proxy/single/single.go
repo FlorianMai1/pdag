@@ -32,7 +32,6 @@ func New(upstreamURL string, apiKey string) (*Backend, error) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			contentType := pr.In.Header.Get("Content-Type")
-			contentLength := pr.In.Header.Get("Content-Length")
 			accept := pr.In.Header.Get("Accept")
 
 			for key := range pr.In.Header {
@@ -43,12 +42,10 @@ func New(upstreamURL string, apiKey string) (*Backend, error) {
 			if contentType != "" {
 				pr.Out.Header.Set("Content-Type", contentType)
 			}
-			if contentLength != "" {
-				pr.Out.Header.Set("Content-Length", contentLength)
-			}
 			if accept != "" {
 				pr.Out.Header.Set("Accept", accept)
 			}
+			// Content-Length is carried by pr.Out and set by the transport.
 
 			pr.SetURL(target)
 			pr.Out.Host = target.Host

@@ -82,6 +82,8 @@ func (m *Store) ListPaged(_ context.Context, limit, offset int) ([]*store.KeyRec
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	limit, offset = clampPaging(limit, offset)
+
 	// Collect and sort by CreatedAt for stable pagination.
 	all := make([]*store.KeyRecord, 0, len(m.keys))
 	for _, rec := range m.keys {
@@ -118,6 +120,8 @@ func (m *Store) ListPaged(_ context.Context, limit, offset int) ([]*store.KeyRec
 func (m *Store) ListFiltered(_ context.Context, limit, offset int, principal, role string) ([]*store.KeyRecord, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	limit, offset = clampPaging(limit, offset)
 
 	// Collect matching records sorted by CreatedAt.
 	all := make([]*store.KeyRecord, 0, len(m.keys))
@@ -254,4 +258,16 @@ func (m *Store) AuditKeyEvent(_ context.Context, _, _, _ string, _, _ any) error
 
 func (m *Store) Close() error {
 	return nil
+}
+
+// clampPaging normalizes negative limit/offset to 0 so slice operations cannot
+// panic regardless of caller input.
+func clampPaging(limit, offset int) (int, int) {
+	if limit < 0 {
+		limit = 0
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }
