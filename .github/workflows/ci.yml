@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    name: lint + unit tests + vuln
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (check, do not rewrite)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: unit tests (race)
+        run: CGO_ENABLED=1 go test -race -count=1 ./cmd/... ./internal/... ./sdk/...
+
+      - name: build pdag + plugins
+        run: make all
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  integration:
+    name: integration tests (testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # The e2e suite launches PowerDNS + Postgres via testcontainers and builds
+      # its own plugin subprocesses in TestMain; Docker is available on
+      # ubuntu-latest runners.
+      - name: integration tests
+        run: CGO_ENABLED=1 go test -race -count=1 -timeout 300s ./tests/...

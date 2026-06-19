@@ -63,8 +63,12 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
-      - "9090:9090"
-      - "9091:9091"
+      # Bind metrics/admin to localhost only — they must not be publicly exposed.
+      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:9091:9091"
+    environment:
+      # Keep Go's heap target just under the container memory limit below.
+      GOMEMLIMIT: "230MiB"
     volumes:
       - pdag-audit-log:/var/log/pdag
       - ./pdag.yaml:/opt/pdag/pdag.yaml:ro
@@ -73,6 +77,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
 
 volumes:
   pdns-db-data:
